@@ -27,7 +27,7 @@ impl AdState {
                 inputs.len()
             )));
         }
-
+        
         let input_arrays: [&[f64]; rust_ad::INPUTS_WIDTH] = [
             inputs[0].as_slice()?,
             inputs[1].as_slice()?,
@@ -97,7 +97,7 @@ pub fn indicator(
             options.len()
         )));
     }
-
+    
     let input_arrays: [&[f64]; rust_ad::INPUTS_WIDTH] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
@@ -106,7 +106,7 @@ pub fn indicator(
     ];
 
     let options_array: [f64; 0] = [];
-
+    
     match rust_ad::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((result, AdState { inner: state })),
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(

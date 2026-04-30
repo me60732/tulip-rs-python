@@ -32,9 +32,9 @@ Requirements:
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/tulip-rs-python.git
+git clone https://github.com/me60732/tulip_rs_python.git
 cd tulip-rs-python
-
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 
 # Install maturin
 pip install maturin
 
