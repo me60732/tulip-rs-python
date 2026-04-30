@@ -1,0 +1,120 @@
+#!/usr/bin/env python3
+"""
+Python example for the VOSC indicator from tulip_rs_python.
+
+This example demonstrates:
+1. Basic VOSC calculation
+2. Indicator info display
+3. State continuation with new data
+4. Matches the Rust reference example exactly
+"""
+
+try:
+    import numpy as np
+    import tulip_rs
+except ImportError as e:
+    print(f"Import error: {e}")
+    print("Please install numpy and build tulip_rs_python with maturin develop")
+    exit(1)
+
+
+def main():
+    # Sample data from Rust example
+    volume = [
+        5653100.0,
+        6447400.0,
+        7690900.0,
+        3831400.0,
+        4455100.0,
+        3798000.0,
+        3936200.0,
+        4732000.0,
+        4841300.0,
+        3915300.0,
+        6830800.0,
+        6694100.0,
+        5293600.0,
+        7985800.0,
+        4807900.0,
+    ]
+
+    volume_vec = np.array(volume, dtype=np.float64)
+    inputs = [volume_vec]
+
+    # Options from Rust example
+    options = [2.0, 5.0]
+
+    ################################################### Show Indicator Info First
+    info = tulip_rs.indicators.vosc.info()
+    print(f"=== {info['name'].upper()} ({info['full_name']}) ===")
+    print(f"Type: {info['indicator_type']}")
+    print(f"Inputs: {info['inputs']}")
+    print(f"Options: {info['options']} (current: {options})")
+    print(f"Outputs: {info['outputs']}")
+    if "optional_outputs" in info:
+        print(f"Optional Outputs: {info['optional_outputs']}")
+
+    # Show minimum data requirement
+    min_data = tulip_rs.indicators.vosc.min_data(options)
+    print(f"Minimum data required: {min_data}")
+
+    # Show minimum data for accuracy
+    min_data_accuracy = tulip_rs.indicators.vosc.min_data_accuracy(options, 6)
+    print(f"Minimum data for accuracy (6 decimals): {min_data_accuracy}")
+    print()
+
+    ################################################### Calculating the Full VOSC Line
+    # Full calculation
+    optional_count = (
+        len(eval(info["optional_outputs"])) if info.get("optional_outputs") else 0
+    )
+    optional_outputs = [True] * optional_count if optional_count > 0 else None
+    outputs, _ = tulip_rs.indicators.vosc.indicator(inputs, options, optional_outputs)
+
+    print(f"Full vosc Line: {outputs[0]}")
+    if optional_count > 0:
+        for i in range(1, len(outputs)):
+            print(f"Optional output {i}: {outputs[i]}")
+
+    ################################################### Calculating the partial VOSC Line
+    # Use partial data for state demo
+    volume_vec2 = np.array(volume[:-5], dtype=np.float64)
+    inputs2 = [volume_vec2]
+
+    # Partial calculation - main outputs only (no optional outputs for state continuation)
+    outputs2, state2 = tulip_rs.indicators.vosc.indicator(inputs2, options)
+    print(f"\nPartial vosc Line: {outputs2[0]}")
+
+    ################################################### State Continuation Demo
+    print("Demonstrating state continuation...")
+
+    # Get state info if available
+    try:
+        state_info = state2.get_info()
+        print(f"State info: {state_info}")
+    except AttributeError:
+        print("State info: VOSC State - internal state for Volume Oscillator")
+
+    # Use the state to continue calculation with new data
+    print("Adding new data to existing state...")
+    # Continue with remaining data
+    new_volume_vec = np.array(volume[-5:], dtype=np.float64)
+    new_data = [new_volume_vec]
+    # State continuation - main outputs only
+    final_outputs = state2.batch_indicator(new_data)
+    print(f"\nFinal vosc Line: {final_outputs[0]}")
+
+    # Verify by calculating full sequence at once
+    print("Verification - calculating full sequence:")
+    # Verify with full data - use same optional outputs as full calculation
+    full_outputs, _ = tulip_rs.indicators.vosc.indicator(
+        inputs, options, optional_outputs
+    )
+    print(f"Verification vosc Line: {full_outputs[0]}")
+    if optional_count > 0:
+        for i in range(1, len(full_outputs)):
+            print(f"Verification optional output {i}: {full_outputs[i]}")
+
+
+if __name__ == "__main__":
+    main()
