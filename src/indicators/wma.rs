@@ -1,15 +1,16 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use std::collections::HashMap;
 
 use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::wma as wma_impl;
+use tulip_rs::indicators::wma as rust_wma;
 
 /// WMA State wrapper for Python
 #[pyclass]
 pub struct WmaState {
-    inner: wma_impl::IndicatorState,
+    inner: rust_wma::IndicatorState,
 }
 
 #[pymethods]
@@ -32,16 +33,16 @@ impl WmaState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != wma_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_wma::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "WMA requires {} input arrays, got {}",
-                wma_impl::INPUTS_WIDTH,
+                rust_wma::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
         // Direct extraction for single input (WMA only takes 1 input)
-        let inputs_array: [&[f64]; wma_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        let inputs_array: [&[f64]; rust_wma::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
         match TIndicatorState::batch_indicator(
             &mut self.inner,
@@ -87,7 +88,7 @@ impl WmaState {
 
 /// Weighted Moving Average - returns (outputs, state) tuple just like Rust
 ///
-/// Mirrors the Rust signature: indicator(inputs: &[&[f64]; INPUTS_WIDTH], options: &[f64; 1], optional_outputs: Option<&[bool]>)
+/// Mirrors the Rust signature: indicator(inputs: &[&[f64]; INPUTS_WIDTH], options: &[f64; rust_wma::OPTIONS_WIDTH], optional_outputs: Option<&[bool]>)
 ///
 /// Args:
 ///     inputs: Array of input arrays (for WMA: just one array of real values)
@@ -114,16 +115,16 @@ pub fn indicator(
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, WmaState)> {
     // Validate inputs count
-    if inputs.len() != wma_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_wma::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "WMA requires {} input arrays, got {}",
-            wma_impl::INPUTS_WIDTH,
+            rust_wma::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
     // Validate options count
-    if options.len() != 1 {
+    if options.len() != rust_wma::OPTIONS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "WMA requires exactly 1 option (period)",
         ));
@@ -137,12 +138,12 @@ pub fn indicator(
     }
 
     // Direct extraction for single input (WMA only takes 1 input)
-    let inputs_array: [&[f64]; wma_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let inputs_array: [&[f64]; rust_wma::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     // Convert options to fixed-size array
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_wma::OPTIONS_WIDTH] = [options[0]];
 
-    match wma_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_wma::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => {
             let py_state = WmaState { inner: state };
             Ok((outputs, py_state))
@@ -157,93 +158,230 @@ pub fn indicator(
 /// Get WMA info
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = wma_impl::info();
+    let info = rust_wma::info();
     Ok(info_to_hashmap(info))
 }
 
 /// Get minimum data required
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
+    if options.len() != rust_wma::OPTIONS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "WMA requires exactly 1 option (period)",
         ));
     }
-    Ok(wma_impl::min_data(&options))
+    Ok(rust_wma::min_data(&options))
 }
 
 /// Get expected output length
 #[pyfunction]
 pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
+    if options.len() != rust_wma::OPTIONS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "WMA requires exactly 1 option (period)",
         ));
     }
-    Ok(wma_impl::output_length(data_length, &options))
+    Ok(rust_wma::output_length(data_length, &options))
 }
 
 /// Get minimum data required for accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
+    if options.len() != rust_wma::OPTIONS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "WMA requires exactly 1 option (period)",
         ));
     }
-    Ok(wma_impl::min_data_accuracy(&options, decimals))
+    Ok(rust_wma::min_data_accuracy(&options, decimals))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::{PyArray1, PyArrayMethods};
-    use pyo3::Python;
-
-    #[cfg(test)] // #[test]
-    fn test_wma_basic() {
-        Python::with_gil(|py| {
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![3.0];
-
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs.len(), 1); // WMA has 1 output
-            assert_eq!(outputs[0].len(), 3); // 5 - 3 + 1 = 3
-
-            // WMA gives more weight to recent values
-            // For [1,2,3] with period 3: (1*1 + 2*2 + 3*3) / (1+2+3) = 14/6 ≈ 2.33
-            assert!((outputs[0][0] - 2.33).abs() < 0.01);
-        });
+/// Calculate Weighted Moving Average for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// Weighted Moving Average
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [real] arrays
+/// - options: Vector with 1 option [period]
+/// - optional_outputs: Optional list of booleans for selecting outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of WMA results for each asset
+///   - states: Vector of WmaState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [real] asset1,  # Asset 1
+///     [real] asset2,  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// inputs = [[real1], [real2], [real3], [real4]]
+/// options = [10.0]
+///
+/// # Calculate WMA for all assets using SIMD
+/// outputs, states = ti.indicators.wma.simd_by_assets(inputs, options, None)
+///
+/// # outputs[0] contains WMA values for asset 1
+/// # outputs[1] contains WMA values for asset 2
+/// # outputs[2] contains WMA values for asset 3
+/// # outputs[3] contains WMA values for asset 4
+/// # states[0] contains the state for asset 1 (for continuation)
+/// # states[1] contains the state for asset 2 (for continuation)
+/// # states[2] contains the state for asset 3 (for continuation)
+/// # states[3] contains the state for asset 4 (for continuation)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<WmaState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
+        ));
     }
 
-    #[cfg(test)] // #[test]
-    fn test_wma_batch_indicator() {
-        Python::with_gil(|py| {
-            // Initial calculation
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
+    let num_assets = inputs.len();
 
-            let inputs = vec![readonly];
-            let options = vec![3.0];
-
-            let (outputs, mut state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs[0].len(), 3);
-
-            // Continue with new data
-            let new_data = vec![6.0, 7.0];
-            let new_py_array = PyArray1::from_vec(py, new_data);
-            let new_readonly = new_py_array.readonly();
-
-            let new_inputs = vec![new_readonly];
-            let continued_outputs = state.batch_indicator(new_inputs, None).unwrap();
-
-            assert_eq!(continued_outputs.len(), 1);
-            assert_eq!(continued_outputs[0].len(), 2); // 2 new values
-        });
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
     }
+
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_wma::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_wma::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
+
+    if options.len() != rust_wma::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_wma::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_wma::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
+
+    for asset_inputs in &inputs {
+        let input_array: [&[f64]; rust_wma::INPUTS_WIDTH] = [
+            asset_inputs[0].as_slice()?, // real
+        ];
+        asset_input_arrays.push(input_array);
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_wma::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+
+    let options_array: [f64; rust_wma::OPTIONS_WIDTH] = [options[0]];
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_wma::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_wma::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_wma::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_wma::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_wma::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_wma::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_wma::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_wma::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let wma_states: Vec<WmaState> = states
+                .into_iter()
+                .map(|state| WmaState { inner: state })
+                .collect();
+            Ok((results, wma_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
+    }
+}
+
+/// Register the WMA indicator module with Python
+///
+/// This function creates a Python submodule for the WMA indicator and registers
+/// all its functions and classes.
+///
+/// # Arguments
+/// * `parent_module` - The parent module to register this indicator under
+///
+/// # Returns
+/// * `PyResult<()>` - Success or error from registration
+pub fn register_wma_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "wma")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<WmaState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+
+    Ok(())
 }

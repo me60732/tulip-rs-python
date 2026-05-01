@@ -1,15 +1,17 @@
+use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::macd as macd_impl;
+use tulip_rs::indicators::macd as rust_macd;
 
 /// MACD State wrapper for Python
 #[pyclass]
+#[derive(Serialize, Deserialize)]
 pub struct MacdState {
-    inner: macd_impl::IndicatorState,
+    inner: rust_macd::IndicatorState,
 }
 
 #[pymethods]
@@ -32,16 +34,16 @@ impl MacdState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != macd_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_macd::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "MACD requires {} input arrays, got {}",
-                macd_impl::INPUTS_WIDTH,
+                rust_macd::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
-        // Direct extraction for single input (MACD only takes 1 input)
-        let inputs_array: [&[f64]; macd_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        // Direct extraction for single input (real)
+        let inputs_array: [&[f64]; rust_macd::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
         match TIndicatorState::batch_indicator(
             &mut self.inner,
@@ -114,19 +116,21 @@ pub fn indicator(
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, MacdState)> {
     // Validate inputs count
-    if inputs.len() != macd_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_macd::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "MACD requires {} input arrays, got {}",
-            macd_impl::INPUTS_WIDTH,
+            rust_macd::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
     // Validate options count
-    if options.len() != 3 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "MACD requires exactly 3 options (short_period, long_period, signal_period)",
-        ));
+    if options.len() != rust_macd::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_macd::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
     // Validate periods
@@ -137,12 +141,12 @@ pub fn indicator(
     }
 
     // Direct extraction for single input (MACD only takes 1 input)
-    let inputs_array: [&[f64]; macd_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let inputs_array: [&[f64]; rust_macd::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     // Convert options to fixed-size array
-    let options_array: [f64; 3] = [options[0], options[1], options[2]];
+    let options_array: [f64; rust_macd::OPTIONS_WIDTH] = [options[0], options[1], options[2]];
 
-    match macd_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_macd::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => {
             let py_state = MacdState { inner: state };
             Ok((outputs, py_state))
@@ -157,120 +161,210 @@ pub fn indicator(
 /// Get MACD info
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = macd_impl::info();
+    let info = rust_macd::info();
     Ok(info_to_hashmap(info))
 }
 
 /// Get minimum data required
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 3 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "MACD requires exactly 3 options (short_period, long_period, signal_period)",
-        ));
+    if options.len() != rust_macd::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_macd::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(macd_impl::min_data(&options))
+    Ok(rust_macd::min_data(&options))
 }
 
 /// Get expected output length - returns tuple of (macd_len, signal_len, histogram_len)
 #[pyfunction]
 pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<(usize, usize, usize)> {
-    if options.len() != 3 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "MACD requires exactly 3 options (short_period, long_period, signal_period)",
-        ));
+    if options.len() != rust_macd::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_macd::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(macd_impl::output_length(data_length, &options))
+    Ok(rust_macd::output_length(data_length, &options))
 }
 
 /// Get minimum data required for accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 3 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "MACD requires exactly 3 options (short_period, long_period, signal_period)",
+    if options.len() != rust_macd::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_macd::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+    Ok(rust_macd::min_data_accuracy(&options, decimals))
+}
+
+/// Calculate MACD for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs for MACD calculation
+/// - options: Vector of options for MACD calculation
+/// - optional_outputs: Optional list of booleans for additional outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of MACD results for each asset
+///   - states: Vector of MacdState objects for continuing calculations
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<MacdState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
         ));
     }
-    Ok(macd_impl::min_data_accuracy(&options, decimals))
+
+    let num_assets = inputs.len();
+
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
+    }
+
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_macd::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_macd::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
+
+    if options.len() != rust_macd::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_macd::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_macd::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
+
+    for asset_inputs in &inputs {
+        let input_array: Result<[&[f64]; rust_macd::INPUTS_WIDTH], _> = asset_inputs
+            .iter()
+            .map(|arr| arr.as_slice())
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into();
+
+        match input_array {
+            Ok(arr) => asset_input_arrays.push(arr),
+            Err(_) => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Failed to convert input arrays",
+                ))
+            }
+        }
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_macd::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+
+    let options_array: Result<[f64; rust_macd::OPTIONS_WIDTH], _> = options.try_into();
+    let options_array = options_array.map_err(|_| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Failed to convert options to array of length {}",
+            rust_macd::OPTIONS_WIDTH
+        ))
+    })?;
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_macd::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_macd::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_macd::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_macd::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_macd::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_macd::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_macd::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_macd::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let indicator_states: Vec<MacdState> = states
+                .into_iter()
+                .map(|state| MacdState { inner: state })
+                .collect();
+            Ok((results, indicator_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
+    }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::{PyArray1, PyArrayMethods};
-    use pyo3::Python;
+// Auto-register functions for MACD
+pub fn register_macd_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "macd")?;
 
-    #[cfg(test)] // #[test]
-    fn test_macd_basic() {
-        
-        Python::with_gil(|py| {
-            // Need enough data for MACD calculation (long_period + signal_period)
-            let data: Vec<f64> = (1..=50).map(|x| x as f64).collect();
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<MacdState>()?;
 
-            let inputs = vec![readonly];
-            let options = vec![12.0, 26.0, 9.0]; // Standard MACD periods
-
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs.len(), 3); // MACD has 3 outputs: macd_line, signal_line, histogram
-            assert!(outputs[0].len() > 0); // Should have some output
-            assert!(outputs[1].len() > 0); // Signal line
-            assert!(outputs[2].len() > 0); // Histogram
-        });
-    }
-
-    #[cfg(test)] // #[test]
-    fn test_macd_batch_indicator() {
-        
-        Python::with_gil(|py| {
-            // Initial calculation
-            let data: Vec<f64> = (1..=40).map(|x| x as f64).collect();
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![12.0, 26.0, 9.0];
-
-            let (_, mut state) = indicator(inputs, options, None).unwrap();
-            //let initial_len = outputs[0].len();
-
-            // Continue with new data
-            let new_data = vec![41.0, 42.0, 43.0];
-            let new_py_array = PyArray1::from_vec(py, new_data);
-            let new_readonly = new_py_array.readonly();
-
-            let new_inputs = vec![new_readonly];
-            let continued_outputs = state.batch_indicator(new_inputs, None).unwrap();
-
-            assert_eq!(continued_outputs.len(), 3); // Still 3 outputs
-            assert_eq!(continued_outputs[0].len(), 3); // 3 new values for each output
-            assert_eq!(continued_outputs[1].len(), 3);
-            assert_eq!(continued_outputs[2].len(), 3);
-        });
-    }
-
-    #[cfg(test)] // #[test]
-    fn test_macd_validation() {
-        
-        Python::with_gil(|py| {
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-
-            // Test invalid options count
-            let result = indicator(inputs.clone(), vec![12.0, 26.0], None);
-            assert!(result.is_err());
-
-            // Test invalid period relationships
-            let result = indicator(inputs.clone(), vec![26.0, 12.0, 9.0], None); // short > long
-            assert!(result.is_err());
-
-            // Test zero period
-            let result = indicator(inputs.clone(), vec![0.0, 26.0, 9.0], None);
-            assert!(result.is_err());
-        });
-    }
+    parent_module.add_submodule(&submodule)?;
+    Ok(())
 }
+

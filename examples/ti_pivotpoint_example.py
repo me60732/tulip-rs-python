@@ -120,6 +120,6 @@ def main():
         for i in range(1, len(outputs)):
             print(f"Optional output {i}: {outputs[i]}")
 
-
+    
 if __name__ == "__main__":
     main()

@@ -1,15 +1,18 @@
+use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::ema as ema_impl;
+use tulip_rs::indicators::ema as rust_ema;
 
 /// EMA State wrapper for Python
 #[pyclass]
+#[derive(Serialize, Deserialize)]
 pub struct EmaState {
-    inner: ema_impl::IndicatorState,
+    inner: rust_ema::IndicatorState,
 }
 
 #[pymethods]
@@ -32,16 +35,16 @@ impl EmaState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != ema_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_ema::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "EMA requires {} input arrays, got {}",
-                ema_impl::INPUTS_WIDTH,
+                rust_ema::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
-        // Direct extraction for single input (EMA only takes 1 input)
-        let inputs_array: [&[f64]; ema_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        // Direct extraction for single input (real)
+        let inputs_array: [&[f64]; rust_ema::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
         match TIndicatorState::batch_indicator(
             &mut self.inner,
@@ -114,22 +117,22 @@ pub fn indicator(
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, EmaState)> {
     // Validate inputs count
-    if inputs.len() != ema_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_ema::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "EMA requires {} input arrays, got {}",
-            ema_impl::INPUTS_WIDTH,
+            rust_ema::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
-    // Validate options count
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "EMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_ema::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_ema::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
-    // Validate period
     if options[0] < 1.0 {
         return Err(pyo3::exceptions::PyValueError::new_err(
             "Period must be >= 1",
@@ -137,12 +140,12 @@ pub fn indicator(
     }
 
     // Direct extraction for single input (EMA only takes 1 input)
-    let inputs_array: [&[f64]; ema_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let inputs_array: [&[f64]; rust_ema::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     // Convert options to fixed-size array
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_ema::OPTIONS_WIDTH] = [options[0]];
 
-    match ema_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_ema::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => {
             let py_state = EmaState { inner: state };
             Ok((outputs, py_state))
@@ -157,94 +160,233 @@ pub fn indicator(
 /// Get EMA info
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = ema_impl::info();
+    let info = rust_ema::info();
     Ok(info_to_hashmap(info))
 }
 
 /// Get minimum data required
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "EMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_ema::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_ema::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(ema_impl::min_data(&options))
+    Ok(rust_ema::min_data(&options))
 }
 
 /// Get expected output length
 #[pyfunction]
 pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "EMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_ema::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_ema::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(ema_impl::output_length(data_length, &options))
+    Ok(rust_ema::output_length(data_length, &options))
 }
 
 /// Get minimum data required for accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "EMA requires exactly 1 option (period)",
+    if options.len() != rust_ema::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_ema::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+    Ok(rust_ema::min_data_accuracy(&options, decimals))
+}
+
+/// Calculate EMA (Exponential Moving Average) for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// The Exponential Moving Average (EMA) is a type of moving average that gives
+/// more weight to recent prices, making it more responsive to new information
+/// than a simple moving average.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [close] arrays
+/// - options: Vector containing [period] for the EMA calculation
+/// - optional_outputs: Optional list of booleans for additional outputs (none available for EMA)
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of EMA results for each asset (each asset returns one EMA line)
+///   - states: Vector of EmaState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [close_asset1],  # Asset 1
+///     [close_asset2],  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// # Data for 4 assets, 30 periods each (SIMD requires 2, 4, 8, or 16 assets)
+/// close1 = np.array([10.3, 10.6, 10.8, 10.7, 11.0, 10.9, 11.1, 10.8, 10.6, 10.9, 11.2, 11.0, 11.3, 11.1, 11.4, 11.2, 11.5, 11.3, 11.6, 11.4, 11.7, 11.5, 11.8, 11.6, 11.9, 11.7, 12.0, 11.8, 12.1, 11.9], dtype=np.float64)
+///
+/// # Similar data for assets 2, 3, 4...
+///
+/// # Prepare inputs for SIMD processing (must be exactly 2, 4, 8, or 16 assets)
+/// inputs = [
+///     [close1],  # Asset 1
+///     [close2],  # Asset 2
+///     [close3],  # Asset 3
+///     [close4],  # Asset 4
+/// ]
+///
+/// # EMA options: [period]
+/// options = [21.0]  # 21-period EMA
+///
+/// # Calculate EMA for all assets using SIMD
+/// outputs, states = ti.indicators.ema_simd_by_assets(inputs, options, None)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<EmaState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
         ));
     }
-    Ok(ema_impl::min_data_accuracy(&options, decimals))
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::{PyArray1, PyArrayMethods};
-    use pyo3::Python;
+    let num_assets = inputs.len();
 
-    #[cfg(test)] // #[test]
-    fn test_ema_basic() {
-        
-        Python::with_gil(|py| {
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![3.0];
-
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs.len(), 1); // EMA has 1 output
-            assert!(outputs[0].len() > 0); // Should have some output
-
-            // EMA starts from the first value, so length should equal input length
-            assert_eq!(outputs[0].len(), 5);
-        });
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
     }
 
-    #[cfg(test)] // #[test]
-    fn test_ema_batch_indicator() {
-        
-        Python::with_gil(|py| {
-            // Initial calculation
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_ema::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_ema::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
 
-            let inputs = vec![readonly];
-            let options = vec![3.0];
+    if options.len() != rust_ema::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_ema::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
 
-            let (outputs, mut state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs[0].len(), 5);
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_ema::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
 
-            // Continue with new data
-            let new_data = vec![6.0, 7.0];
-            let new_py_array = PyArray1::from_vec(py, new_data);
-            let new_readonly = new_py_array.readonly();
+    for asset_inputs in &inputs {
+        let input_array: [&[f64]; rust_ema::INPUTS_WIDTH] = [
+            asset_inputs[0].as_slice()?, // close
+        ];
+        asset_input_arrays.push(input_array);
+    }
 
-            let new_inputs = vec![new_readonly];
-            let continued_outputs = state.batch_indicator(new_inputs, None).unwrap();
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_ema::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
 
-            assert_eq!(continued_outputs.len(), 1);
-            assert_eq!(continued_outputs[0].len(), 2); // 2 new values
-        });
+    let options_array: [f64; rust_ema::OPTIONS_WIDTH] = [options[0]];
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_ema::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_ema::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_ema::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_ema::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_ema::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_ema::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_ema::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_ema::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let ema_states: Vec<EmaState> = states
+                .into_iter()
+                .map(|state| EmaState { inner: state })
+                .collect();
+            Ok((results, ema_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
     }
 }
+
+// Auto-register functions for EMA
+pub fn register_ema_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "ema")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<EmaState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+    Ok(())
+}
+

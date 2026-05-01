@@ -1,16 +1,19 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::utils::info_to_hashmap;
 
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::bbands as bbands_impl;
+use tulip_rs::indicators::bbands as rust_bbands;
 
 /// Bollinger Bands State wrapper for Python
 #[pyclass]
+#[derive(Serialize, Deserialize)]
 pub struct BbandsState {
-    inner: bbands_impl::IndicatorState,
+    inner: rust_bbands::IndicatorState,
 }
 
 #[pymethods]
@@ -33,16 +36,16 @@ impl BbandsState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != bbands_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_bbands::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "BBANDS requires {} input arrays, got {}",
-                bbands_impl::INPUTS_WIDTH,
+                rust_bbands::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
         // Direct extraction for single input (BBANDS only takes 1 input)
-        let inputs_array: [&[f64]; bbands_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        let inputs_array: [&[f64]; rust_bbands::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
         match TIndicatorState::batch_indicator(
             &mut self.inner,
@@ -115,19 +118,20 @@ pub fn indicator(
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, BbandsState)> {
     // Validate inputs count
-    if inputs.len() != bbands_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_bbands::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "BBANDS requires {} input arrays, got {}",
-            bbands_impl::INPUTS_WIDTH,
+            rust_bbands::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
-    // Validate options count
-    if options.len() != 2 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "BBANDS requires exactly 2 options (period, std_dev)",
-        ));
+    if options.len() != rust_bbands::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_bbands::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
     // Validate options
@@ -138,12 +142,12 @@ pub fn indicator(
     }
 
     // Direct extraction for single input (BBANDS only takes 1 input)
-    let inputs_array: [&[f64]; bbands_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let inputs_array: [&[f64]; rust_bbands::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     // Convert options to fixed-size array
-    let options_array: [f64; 2] = [options[0], options[1]];
+    let options_array: [f64; rust_bbands::OPTIONS_WIDTH] = [options[0], options[1]];
 
-    match bbands_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_bbands::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => {
             let py_state = BbandsState { inner: state };
             Ok((outputs, py_state))
@@ -158,158 +162,210 @@ pub fn indicator(
 /// Get BBANDS info
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = bbands_impl::info();
+    let info = rust_bbands::info();
     Ok(info_to_hashmap(info))
 }
 
 /// Get minimum data required
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 2 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "BBANDS requires exactly 2 options (period, std_dev)",
-        ));
+    if options.len() != rust_bbands::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_bbands::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(bbands_impl::min_data(&options))
+    Ok(rust_bbands::min_data(&options))
 }
 
 /// Get expected output length
 #[pyfunction]
 pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 2 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "BBANDS requires exactly 2 options (period, std_dev)",
-        ));
+    if options.len() != rust_bbands::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_bbands::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(bbands_impl::output_length(data_length, &options))
+    Ok(rust_bbands::output_length(data_length, &options))
 }
 
 /// Get minimum data required for accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 2 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "BBANDS requires exactly 2 options (period, std_dev)",
+    if options.len() != rust_bbands::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_bbands::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+    Ok(rust_bbands::min_data_accuracy(&options, decimals))
+}
+
+/// Calculate BBANDS for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs for BBANDS calculation
+/// - options: Vector of options for BBANDS calculation
+/// - optional_outputs: Optional list of booleans for additional outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of BBANDS results for each asset
+///   - states: Vector of BbandsState objects for continuing calculations
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<BbandsState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
         ));
     }
-    Ok(bbands_impl::min_data_accuracy(&options, decimals))
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::{PyArray1, PyArrayMethods};
-    use pyo3::Python;
+    let num_assets = inputs.len();
 
-    #[cfg(test)] // #[test]
-    fn test_bbands_basic() {
-        
-        Python::with_gil(|py| {
-            // Need enough data for Bollinger Bands calculation
-            let data: Vec<f64> = (1..=30).map(|x| x as f64).collect();
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![20.0, 2.0]; // Standard Bollinger Bands: 20 period, 2 std dev
-
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs.len(), 3); // BBANDS has 3 outputs: lower, middle, upper
-            assert!(outputs[0].len() > 0); // Lower band
-            assert!(outputs[1].len() > 0); // Middle band (SMA)
-            assert!(outputs[2].len() > 0); // Upper band
-        });
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
     }
 
-    #[cfg(test)] // #[test]
-    fn test_bbands_batch_indicator() {
-        
-        Python::with_gil(|py| {
-            // Initial calculation
-            let data: Vec<f64> = (1..=25).map(|x| x as f64).collect();
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![20.0, 2.0];
-
-            let (outputs, mut state) = indicator(inputs, options, None).unwrap();
-            let _ = outputs[0].len();
-
-            // Continue with new data
-            let new_data = vec![26.0, 27.0, 28.0];
-            let new_py_array = PyArray1::from_vec(py, new_data);
-            let new_readonly = new_py_array.readonly();
-
-            let new_inputs = vec![new_readonly];
-            let continued_outputs = state.batch_indicator(new_inputs, None).unwrap();
-
-            assert_eq!(continued_outputs.len(), 3); // Still 3 outputs
-            assert_eq!(continued_outputs[0].len(), 3); // 3 new values for each output
-            assert_eq!(continued_outputs[1].len(), 3);
-            assert_eq!(continued_outputs[2].len(), 3);
-        });
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_bbands::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_bbands::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
     }
 
-    #[cfg(test)] // #[test]
-    fn test_bbands_validation() {
-        
-        Python::with_gil(|py| {
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-
-            // Test invalid options count
-            let result = indicator(inputs.clone(), vec![20.0], None);
-            assert!(result.is_err());
-
-            // Test invalid period
-            let result = indicator(inputs.clone(), vec![0.0, 2.0], None);
-            assert!(result.is_err());
-
-            // Test invalid std_dev
-            let result = indicator(inputs.clone(), vec![20.0, 0.0], None);
-            assert!(result.is_err());
-        });
+    if options.len() != rust_bbands::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_bbands::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
-    #[cfg(test)] // #[test]
-    fn test_bbands_band_relationship() {
-        
-        Python::with_gil(|py| {
-            // Test that upper band > middle band > lower band
-            let data: Vec<f64> = (1..=30).map(|x| x as f64).collect();
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_bbands::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
 
-            let inputs = vec![readonly];
-            let options = vec![10.0, 1.0];
+    for asset_inputs in &inputs {
+        let input_array: Result<[&[f64]; rust_bbands::INPUTS_WIDTH], _> = asset_inputs
+            .iter()
+            .map(|arr| arr.as_slice())
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into();
 
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-
-            let lower_band = &outputs[0];
-            let middle_band = &outputs[1];
-            let upper_band = &outputs[2];
-
-            // Check that the bands maintain proper order
-            for i in 0..lower_band.len() {
-                assert!(
-                    lower_band[i] <= middle_band[i],
-                    "Lower band should be <= middle band at index {}: {} > {}",
-                    i,
-                    lower_band[i],
-                    middle_band[i]
-                );
-                assert!(
-                    middle_band[i] <= upper_band[i],
-                    "Middle band should be <= upper band at index {}: {} > {}",
-                    i,
-                    middle_band[i],
-                    upper_band[i]
-                );
+        match input_array {
+            Ok(arr) => asset_input_arrays.push(arr),
+            Err(_) => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Failed to convert input arrays",
+                ))
             }
-        });
+        }
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_bbands::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+
+    let options_array: Result<[f64; rust_bbands::OPTIONS_WIDTH], _> = options.try_into();
+    let options_array = options_array.map_err(|_| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Failed to convert options to array of length {}",
+            rust_bbands::OPTIONS_WIDTH
+        ))
+    })?;
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_bbands::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_bbands::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_bbands::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_bbands::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_bbands::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_bbands::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_bbands::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_bbands::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let bbands_states: Vec<BbandsState> = states
+                .into_iter()
+                .map(|state| BbandsState { inner: state })
+                .collect();
+            Ok((results, bbands_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
     }
 }
+
+// Auto-register functions for BBANDS
+pub fn register_bbands_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "bbands")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<BbandsState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+    Ok(())
+}
+

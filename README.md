@@ -43,6 +43,8 @@ maturin develop
 
 # Or build wheel for distribution
 maturin build --release
+#Or for build specific to current machine cpu archicture can also compile for other archictures by changing native to other rust cargo attributes
+RUSTFLAGS="-C target-cpu=native" maturin build --release
 ```
 
 ## Quick Start

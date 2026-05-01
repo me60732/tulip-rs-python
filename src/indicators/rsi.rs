@@ -1,15 +1,18 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::rsi as rsi_impl;
+use tulip_rs::indicators::rsi as rust_rsi;
 
 /// RSI State wrapper for Python
 #[pyclass]
+#[derive(Serialize, Deserialize)]
 pub struct RsiState {
-    inner: rsi_impl::IndicatorState,
+    inner: rust_rsi::IndicatorState,
 }
 
 #[pymethods]
@@ -32,16 +35,16 @@ impl RsiState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != rsi_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_rsi::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "RSI requires {} input arrays, got {}",
-                rsi_impl::INPUTS_WIDTH,
+                rust_rsi::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
         // Direct extraction for single input (RSI only takes 1 input)
-        let inputs_array: [&[f64]; rsi_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        let inputs_array: [&[f64]; rust_rsi::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
         match TIndicatorState::batch_indicator(
             &mut self.inner,
@@ -114,19 +117,21 @@ pub fn indicator(
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, RsiState)> {
     // Validate inputs count
-    if inputs.len() != rsi_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_rsi::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "RSI requires {} input arrays, got {}",
-            rsi_impl::INPUTS_WIDTH,
+            rust_rsi::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
     // Validate options count
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "RSI requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_rsi::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_rsi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
     // Validate period
@@ -137,12 +142,12 @@ pub fn indicator(
     }
 
     // Direct extraction for single input (RSI only takes 1 input)
-    let inputs_array: [&[f64]; rsi_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let inputs_array: [&[f64]; rust_rsi::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     // Convert options to fixed-size array
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_rsi::OPTIONS_WIDTH] = [options[0]];
 
-    match rsi_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_rsi::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => {
             let py_state = RsiState { inner: state };
             Ok((outputs, py_state))
@@ -157,106 +162,260 @@ pub fn indicator(
 /// Get RSI info
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = rsi_impl::info();
+    let info = rust_rsi::info();
     Ok(info_to_hashmap(info))
+}
+
+/// Register the RSI indicator module with Python
+///
+/// This function creates a Python submodule for the RSI indicator and registers
+/// all its functions and classes.
+///
+/// # Arguments
+/// * `parent_module` - The parent module to register this indicator under
+///
+/// # Returns
+/// * `PyResult<()>` - Success or error from registration
+pub fn register_rsi_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "rsi")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<RsiState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+
+    Ok(())
 }
 
 /// Get minimum data required
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "RSI requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_rsi::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_rsi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(rsi_impl::min_data(&options))
+    Ok(rust_rsi::min_data(&options))
 }
 
 /// Get expected output length
 #[pyfunction]
 pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "RSI requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_rsi::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_rsi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(rsi_impl::output_length(data_length, &options))
+    Ok(rust_rsi::output_length(data_length, &options))
 }
 
 /// Get minimum data required for accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "RSI requires exactly 1 option (period)",
+    if options.len() != rust_rsi::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_rsi::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+    Ok(rust_rsi::min_data_accuracy(&options, decimals))
+}
+
+/// Calculate RSI (Relative Strength Index) for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// The Relative Strength Index (RSI) is a momentum oscillator that measures the
+/// speed and change of price movements. It oscillates between 0 and 100 and is
+/// typically used to identify overbought or oversold conditions.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [real] arrays
+/// - options: Vector containing [period] for the RSI calculation
+/// - optional_outputs: Optional list of booleans for additional outputs (none available for RSI)
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of RSI results for each asset (each asset returns one RSI line)
+///   - states: Vector of RsiState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [real_asset1],  # Asset 1
+///     [real_asset2],  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// # Data for 4 assets, 20 periods each (SIMD requires 2, 4, 8, or 16 assets)
+/// real1 = np.array([44.0, 44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.85, 46.08, 45.89,
+///                   46.03, 46.83, 46.69, 46.45, 46.59, 46.30, 46.02, 46.74, 46.93, 47.37], dtype=np.float64)
+///
+/// real2 = np.array([54.0, 54.34, 54.09, 54.15, 53.61, 54.33, 54.83, 55.85, 56.08, 55.89,
+///                   56.03, 56.83, 56.69, 56.45, 56.59, 56.30, 56.02, 56.74, 56.93, 57.37], dtype=np.float64)
+///
+/// real3 = np.array([64.0, 64.34, 64.09, 64.15, 63.61, 64.33, 64.83, 65.85, 66.08, 65.89,
+///                   66.03, 66.83, 66.69, 66.45, 66.59, 66.30, 66.02, 66.74, 66.93, 67.37], dtype=np.float64)
+///
+/// real4 = np.array([74.0, 74.34, 74.09, 74.15, 73.61, 74.33, 74.83, 75.85, 76.08, 75.89,
+///                   76.03, 76.83, 76.69, 76.45, 76.59, 76.30, 76.02, 76.74, 76.93, 77.37], dtype=np.float64)
+///
+/// # Prepare inputs for SIMD processing (must be exactly 2, 4, 8, or 16 assets)
+/// inputs = [
+///     [real1],  # Asset 1
+///     [real2],  # Asset 2
+///     [real3],  # Asset 3
+///     [real4],  # Asset 4
+/// ]
+///
+/// # RSI options: [period]
+/// options = [14]  # 14-period RSI
+///
+/// # Calculate RSI for all assets using SIMD
+/// outputs, states = ti.indicators.rsi_simd_by_assets(inputs, options, None)
+///
+/// # outputs[0] contains RSI values for asset 1
+/// # outputs[1] contains RSI values for asset 2
+/// # outputs[2] contains RSI values for asset 3
+/// # outputs[3] contains RSI values for asset 4
+/// # states[0] contains the state for asset 1 (for continuation)
+/// # states[1] contains the state for asset 2 (for continuation)
+/// # states[2] contains the state for asset 3 (for continuation)
+/// # states[3] contains the state for asset 4 (for continuation)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<RsiState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
         ));
     }
-    Ok(rsi_impl::min_data_accuracy(&options, decimals))
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::{PyArray1, PyArrayMethods};
-    use pyo3::Python;
+    let num_assets = inputs.len();
 
-    #[cfg(test)] // #[test]
-    fn test_rsi_basic() {
-        
-        Python::with_gil(|py| {
-            // Classic RSI test data
-            let data = vec![
-                44.0, 44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.85, 46.08, 45.89, 46.03, 46.83,
-                46.69, 46.45, 46.59, 46.30, 46.02, 46.74, 46.93, 47.37,
-            ];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![14.0];
-
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs.len(), 1); // RSI has 1 output
-            assert!(outputs[0].len() > 0); // Should have some output
-
-            // First RSI value should be around 70.5 for this classic dataset
-            let first_rsi = outputs[0][0];
-            assert!(
-                first_rsi > 65.0 && first_rsi < 75.0,
-                "First RSI value should be around 70: {}",
-                first_rsi
-            );
-        });
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
     }
 
-    #[cfg(test)] // #[test]
-    fn test_rsi_batch_indicator() {
-        
-        Python::with_gil(|py| {
-            // Initial calculation with shorter dataset
-            let data = vec![
-                44.0, 44.34, 44.09, 44.15, 43.61, 44.33, 44.83, 45.85, 46.08, 45.89, 46.03, 46.83,
-                46.69, 46.45, 46.59,
-            ];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_rsi::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_rsi::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
 
-            let inputs = vec![readonly];
-            let options = vec![14.0];
+    if options.len() != rust_rsi::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_rsi::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
 
-            let (outputs, mut state) = indicator(inputs, options, None).unwrap();
-            let _ = outputs[0].len();
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_rsi::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
 
-            // Continue with new data
-            let new_data = vec![46.30, 46.02];
-            let new_py_array = PyArray1::from_vec(py, new_data);
-            let new_readonly = new_py_array.readonly();
+    for asset_inputs in &inputs {
+        let input_array: [&[f64]; rust_rsi::INPUTS_WIDTH] = [
+            asset_inputs[0].as_slice()?, // real
+        ];
+        asset_input_arrays.push(input_array);
+    }
 
-            let new_inputs = vec![new_readonly];
-            let continued_outputs = state.batch_indicator(new_inputs, None).unwrap();
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_rsi::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
 
-            assert_eq!(continued_outputs.len(), 1);
-            assert_eq!(continued_outputs[0].len(), 2); // 2 new values
-        });
+    let options_array: [f64; rust_rsi::OPTIONS_WIDTH] = [options[0]];
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_rsi::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_rsi::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_rsi::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_rsi::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_rsi::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_rsi::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_rsi::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_rsi::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let rsi_states: Vec<RsiState> = states
+                .into_iter()
+                .map(|state| RsiState { inner: state })
+                .collect();
+            Ok((results, rsi_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
     }
 }
+

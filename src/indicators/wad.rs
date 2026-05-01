@@ -1,5 +1,6 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
@@ -134,4 +135,202 @@ pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> 
 #[pyfunction]
 pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_wad::output_length(data_len, &options))
+}
+
+/// Calculate Williams Accumulation/Distribution for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// Williams Accumulation/Distribution
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [high, low, close] arrays
+/// - options: Empty vector (WAD requires no options)
+/// - optional_outputs: Optional list of booleans for selecting outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of WAD results for each asset
+///   - states: Vector of WadState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [high, low, close] asset1,  # Asset 1
+///     [high, low, close] asset2,  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// inputs = [
+///     [high1, low1, close1],
+///     [high2, low2, close2],
+///     [high3, low3, close3],
+///     [high4, low4, close4],
+/// ]
+/// options = []
+///
+/// # Calculate WAD for all assets using SIMD
+/// outputs, states = ti.indicators.wad.simd_by_assets(inputs, options, None)
+///
+/// # outputs[0] contains WAD values for asset 1
+/// # outputs[1] contains WAD values for asset 2
+/// # outputs[2] contains WAD values for asset 3
+/// # outputs[3] contains WAD values for asset 4
+/// # states[0] contains the state for asset 1 (for continuation)
+/// # states[1] contains the state for asset 2 (for continuation)
+/// # states[2] contains the state for asset 3 (for continuation)
+/// # states[3] contains the state for asset 4 (for continuation)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<WadState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
+        ));
+    }
+
+    let num_assets = inputs.len();
+
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
+    }
+
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_wad::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_wad::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
+
+    if options.len() != rust_wad::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_wad::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_wad::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
+
+    for asset_inputs in &inputs {
+        let input_array: [&[f64]; rust_wad::INPUTS_WIDTH] = [
+            asset_inputs[0].as_slice()?, // high
+            asset_inputs[1].as_slice()?, // low
+            asset_inputs[2].as_slice()?, // close
+        ];
+        asset_input_arrays.push(input_array);
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_wad::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+
+    let options_array: [f64; rust_wad::OPTIONS_WIDTH] = [];
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_wad::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_wad::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_wad::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_wad::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_wad::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_wad::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_wad::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_wad::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let wad_states: Vec<WadState> = states
+                .into_iter()
+                .map(|state| WadState { inner: state })
+                .collect();
+            Ok((results, wad_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
+    }
+}
+
+/// Register the WAD indicator module with Python
+///
+/// This function creates a Python submodule for the WAD indicator and registers
+/// all its functions and classes.
+///
+/// # Arguments
+/// * `parent_module` - The parent module to register this indicator under
+///
+/// # Returns
+/// * `PyResult<()>` - Success or error from registration
+pub fn register_wad_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "wad")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<WadState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+
+    Ok(())
 }

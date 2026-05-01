@@ -1,16 +1,17 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use std::collections::HashMap;
 
 use crate::utils::info_to_hashmap;
 
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::stochrsi as stochrsi_impl;
+use tulip_rs::indicators::stochrsi as rust_stochrsi;
 
 /// STOCHRSI State wrapper for Python
 #[pyclass]
 pub struct StochrsiState {
-    inner: stochrsi_impl::IndicatorState,
+    inner: rust_stochrsi::IndicatorState,
 }
 
 #[pymethods]
@@ -33,16 +34,16 @@ impl StochrsiState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != stochrsi_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_stochrsi::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "STOCHRSI requires {} input arrays, got {}",
-                stochrsi_impl::INPUTS_WIDTH,
+                rust_stochrsi::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
         // Direct extraction for single input (real)
-        let inputs_array: [&[f64]; stochrsi_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        let inputs_array: [&[f64]; rust_stochrsi::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
         match TIndicatorState::batch_indicator(
             &mut self.inner,
@@ -101,25 +102,27 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, StochrsiState)> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "STOCHRSI requires exactly 1 option: period",
-        ));
+    if options.len() != rust_stochrsi::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_stochrsi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
-    if inputs.len() != stochrsi_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_stochrsi::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "STOCHRSI requires {} input arrays, got {}",
-            stochrsi_impl::INPUTS_WIDTH,
+            rust_stochrsi::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
     // Direct extraction for single input (real)
-    let inputs_array: [&[f64]; stochrsi_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
-    let options_array: [f64; 1] = [options[0]];
+    let inputs_array: [&[f64]; rust_stochrsi::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let options_array: [f64; rust_stochrsi::OPTIONS_WIDTH] = [options[0]];
 
-    match stochrsi_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_stochrsi::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => Ok((outputs, StochrsiState { inner: state })),
         Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Calculation error: {}",
@@ -131,85 +134,249 @@ pub fn indicator(
 /// Get STOCHRSI indicator information
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = stochrsi_impl::info();
+    let info = rust_stochrsi::info();
     Ok(info_to_hashmap(info))
+}
+
+/// Calculate Stochastic RSI for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// The Stochastic RSI combines the Stochastic oscillator formula with RSI values
+/// instead of price data, creating a momentum oscillator.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [real] arrays
+/// - options: Vector with 1 option [period]
+/// - optional_outputs: Optional list of booleans for selecting outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of STOCHRSI results for each asset
+///   - states: Vector of StochrsiState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [real_asset1],  # Asset 1
+///     [real_asset2],  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// # Data for 4 assets, 30 periods each (SIMD requires 2, 4, 8, or 16 assets)
+/// real1 = np.array([81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54, 86.89, 87.77, 87.29, 88.15, 89.44, 89.18, 88.67, 87.96, 89.43, 90.17, 90.78, 91.04, 90.58, 91.32, 90.13, 89.14, 89.44, 88.43], dtype=np.float64)
+/// real2 = np.array([91.59, 91.06, 92.87, 93.00, 93.61, 93.15, 92.84, 93.99, 94.55, 94.36, 95.53, 96.54, 96.89, 97.77, 97.29, 98.15, 99.44, 99.18, 98.67, 97.96, 99.43, 100.17, 100.78, 101.04, 100.58, 101.32, 100.13, 99.14, 99.44, 98.43], dtype=np.float64)
+/// real3 = np.array([101.59, 101.06, 102.87, 103.00, 103.61, 103.15, 102.84, 103.99, 104.55, 104.36, 105.53, 106.54, 106.89, 107.77, 107.29, 108.15, 109.44, 109.18, 108.67, 107.96, 109.43, 110.17, 110.78, 111.04, 110.58, 111.32, 110.13, 109.14, 109.44, 108.43], dtype=np.float64)
+/// real4 = np.array([111.59, 111.06, 112.87, 113.00, 113.61, 113.15, 112.84, 113.99, 114.55, 114.36, 115.53, 116.54, 116.89, 117.77, 117.29, 118.15, 119.44, 119.18, 118.67, 117.96, 119.43, 120.17, 120.78, 121.04, 120.58, 121.32, 120.13, 119.14, 119.44, 118.43], dtype=np.float64)
+///
+/// # Prepare inputs for SIMD processing (must be exactly 2, 4, 8, or 16 assets)
+/// inputs = [
+///     [real1],  # Asset 1
+///     [real2],  # Asset 2
+///     [real3],  # Asset 3
+///     [real4],  # Asset 4
+/// ]
+///
+/// # Calculate STOCHRSI for all assets using SIMD
+/// outputs, states = ti.indicators.stochrsi.simd_by_assets(inputs, [14.0], None)
+///
+/// # outputs[0] contains STOCHRSI values for asset 1
+/// # outputs[1] contains STOCHRSI values for asset 2
+/// # outputs[2] contains STOCHRSI values for asset 3
+/// # outputs[3] contains STOCHRSI values for asset 4
+/// # states[0] contains the state for asset 1 (for continuation)
+/// # states[1] contains the state for asset 2 (for continuation)
+/// # states[2] contains the state for asset 3 (for continuation)
+/// # states[3] contains the state for asset 4 (for continuation)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<StochrsiState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
+        ));
+    }
+
+    let num_assets = inputs.len();
+
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
+    }
+
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_stochrsi::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_stochrsi::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
+
+    if options.len() != rust_stochrsi::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_stochrsi::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_stochrsi::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
+
+    for asset_inputs in &inputs {
+        let input_array: [&[f64]; rust_stochrsi::INPUTS_WIDTH] = [
+            asset_inputs[0].as_slice()?, // real
+        ];
+        asset_input_arrays.push(input_array);
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_stochrsi::INPUTS_WIDTH]> =
+        asset_input_arrays.iter().collect();
+
+    let options_array: [f64; rust_stochrsi::OPTIONS_WIDTH] = [options[0]];
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_stochrsi::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_stochrsi::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_stochrsi::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_stochrsi::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_stochrsi::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_stochrsi::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_stochrsi::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_stochrsi::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let stochrsi_states: Vec<StochrsiState> = states
+                .into_iter()
+                .map(|state| StochrsiState { inner: state })
+                .collect();
+            Ok((results, stochrsi_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
+    }
+}
+
+/// Register the STOCHRSI indicator module with Python
+///
+/// This function creates a Python submodule for the STOCHRSI indicator and registers
+/// all its functions and classes.
+///
+/// # Arguments
+/// * `parent_module` - The parent module to register this indicator under
+///
+/// # Returns
+/// * `PyResult<()>` - Success or error from registration
+pub fn register_stochrsi_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "stochrsi")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<StochrsiState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+
+    Ok(())
 }
 
 /// Get minimum data length required for STOCHRSI calculation
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "STOCHRSI requires exactly 1 option: period",
-        ));
+    if options.len() != rust_stochrsi::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_stochrsi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(stochrsi_impl::min_data(&options))
+    Ok(rust_stochrsi::min_data(&options))
 }
 
 /// Get minimum data length required for STOCHRSI calculation with accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "STOCHRSI requires exactly 1 option: period",
-        ));
+    if options.len() != rust_stochrsi::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_stochrsi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(stochrsi_impl::min_data_accuracy(&options, decimals))
+    Ok(rust_stochrsi::min_data_accuracy(&options, decimals))
 }
 
 /// Get output length for STOCHRSI calculation
 #[pyfunction]
 pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "STOCHRSI requires exactly 1 option: period",
-        ));
+    if options.len() != rust_stochrsi::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_stochrsi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(stochrsi_impl::output_length(data_len, &options))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tulip_rs::indicator_types::TIndicatorState;
-
-    #[cfg(test)] // #[test]
-    fn test_stochrsi_basic() {
-        let close = [
-            81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54,
-            86.89, 87.77, 87.29, 88.15, 89.44, 89.18, 88.67, 87.96, 89.43, 90.17, 90.78, 91.04,
-            90.58, 91.32, 90.13, 89.14, 89.44, 88.43,
-        ];
-        let options = vec![14.0];
-
-        let input_refs: [&[f64]; 1] = [&close];
-        let options_array: [f64; 1] = [options[0]];
-
-        let result = stochrsi_impl::indicator(&input_refs, &options_array, None);
-        assert!(result.is_ok());
-        let (outputs, _state) = result.unwrap();
-        assert!(!outputs[0].is_empty());
-    }
-
-    #[cfg(test)] // #[test]
-    fn test_stochrsi_state_continuation() {
-        let close = [
-            81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54,
-            86.89, 87.77, 87.29, 88.15, 89.44, 89.18, 88.67, 87.96, 89.43, 90.17, 90.78, 91.04,
-            90.58, 91.32, 90.13, 89.14, 89.44, 88.43,
-        ];
-        let options = vec![14.0];
-
-        // Test state continuation
-        let split_point = 25;
-        let input_refs1: [&[f64]; 1] = [&close[..split_point]];
-        let input_refs2: [&[f64]; 1] = [&close[split_point..]];
-        let options_array: [f64; 1] = [options[0]];
-
-        let (_outputs1, mut state) =
-            stochrsi_impl::indicator(&input_refs1, &options_array, None).unwrap();
-        let outputs2 = state.batch_indicator(&input_refs2, None).unwrap();
-
-        assert!(!outputs2[0].is_empty());
-    }
+    Ok(rust_stochrsi::output_length(data_len, &options))
 }

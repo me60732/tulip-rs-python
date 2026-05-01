@@ -1,15 +1,18 @@
 use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::mfi as mfi_impl;
+use tulip_rs::indicators::mfi as rust_mfi;
 
 /// MFI State wrapper for Python
 #[pyclass]
+#[derive(Serialize, Deserialize)]
 pub struct MfiState {
-    inner: mfi_impl::IndicatorState,
+    inner: rust_mfi::IndicatorState,
 }
 
 #[pymethods]
@@ -25,23 +28,23 @@ impl MfiState {
     ///     inputs: Array of input arrays [high, low, close, volume]
     ///
     /// Returns:
-    ///     List of output arrays [mfi] + optional outputs [typprice]
+    ///     List of output arrays (for MFI: [mfi])
     #[pyo3(signature = (inputs, optional_outputs=None))]
     fn batch_indicator(
         &mut self,
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != mfi_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_mfi::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "MFI requires {} input arrays, got {}",
-                mfi_impl::INPUTS_WIDTH,
+                rust_mfi::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
         // Direct extraction for four inputs (high, low, close, volume)
-        let inputs_array: [&[f64]; mfi_impl::INPUTS_WIDTH] = [
+        let inputs_array: [&[f64]; rust_mfi::INPUTS_WIDTH] = [
             inputs[0].as_slice()?,
             inputs[1].as_slice()?,
             inputs[2].as_slice()?,
@@ -88,16 +91,16 @@ impl MfiState {
 
 /// Calculate MFI (Money Flow Index)
 ///
-/// The Money Flow Index (MFI) is a momentum indicator that incorporates both price
-/// and volume to identify overbought or oversold conditions.
+/// The Money Flow Index (MFI) is a momentum indicator that uses price and volume
+/// to identify overbought or oversold conditions in a security.
 ///
 /// Parameters:
 /// - inputs: List of numpy arrays [high, low, close, volume]
 /// - options: List containing [period]
-/// - optional_outputs: Optional list of booleans for additional outputs [typprice]
+/// - optional_outputs: Optional list of booleans for additional outputs (none available)
 ///
 /// Returns:
-/// - Tuple of (outputs, state) where outputs is [mfi_line] + optional outputs
+/// - Tuple of (outputs, state) where outputs is [mfi]
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn indicator(
@@ -105,30 +108,32 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, MfiState)> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "MFI requires exactly 1 option: period",
-        ));
+    if options.len() != rust_mfi::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_mfi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
-    if inputs.len() != mfi_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_mfi::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "MFI requires {} input arrays, got {}",
-            mfi_impl::INPUTS_WIDTH,
+            rust_mfi::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
     // Direct extraction for four inputs (high, low, close, volume)
-    let inputs_array: [&[f64]; mfi_impl::INPUTS_WIDTH] = [
+    let inputs_array: [&[f64]; rust_mfi::INPUTS_WIDTH] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
         inputs[2].as_slice()?,
         inputs[3].as_slice()?,
     ];
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_mfi::OPTIONS_WIDTH] = [options[0]];
 
-    match mfi_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_mfi::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => Ok((outputs, MfiState { inner: state })),
         Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Calculation error: {}",
@@ -137,120 +142,215 @@ pub fn indicator(
     }
 }
 
+/// Calculate MFI (Money Flow Index) for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// The Money Flow Index is a momentum indicator that uses both price and volume
+/// to identify overbought or oversold conditions.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [high, low, close, volume] arrays
+/// - options: Vector containing [period] for the MFI calculation
+/// - optional_outputs: Optional list of booleans for additional outputs (none available for MFI)
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of MFI results for each asset
+///   - states: Vector of MfiState objects for continuing calculations
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<MfiState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
+        ));
+    }
+
+    let num_assets = inputs.len();
+
+    // Validate SIMD lane count
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
+    }
+
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_mfi::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_mfi::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
+
+    if options.len() != rust_mfi::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_mfi::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_mfi::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
+
+    for asset_inputs in &inputs {
+        let input_array: Result<[&[f64]; rust_mfi::INPUTS_WIDTH], _> = asset_inputs
+            .iter()
+            .map(|arr| arr.as_slice())
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into();
+
+        match input_array {
+            Ok(arr) => asset_input_arrays.push(arr),
+            Err(_) => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Failed to convert input arrays",
+                ))
+            }
+        }
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_mfi::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+
+    let options_array: Result<[f64; rust_mfi::OPTIONS_WIDTH], _> = options.try_into();
+    let options_array = options_array.map_err(|_| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Failed to convert options to array of length {}",
+            rust_mfi::OPTIONS_WIDTH
+        ))
+    })?;
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_mfi::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_mfi::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_mfi::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_mfi::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_mfi::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_mfi::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_mfi::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_mfi::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let mfi_states: Vec<MfiState> = states
+                .into_iter()
+                .map(|state| MfiState { inner: state })
+                .collect();
+            Ok((results, mfi_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
+    }
+}
+
+/// Register the MFI indicator module with Python
+pub fn register_mfi_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "mfi")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<MfiState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+
+    Ok(())
+}
+
 /// Get MFI indicator information
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = mfi_impl::info();
+    let info = rust_mfi::info();
     Ok(info_to_hashmap(info))
 }
 
 /// Get minimum data length required for MFI calculation
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "MFI requires exactly 1 option: period",
-        ));
+    if options.len() != rust_mfi::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_mfi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(mfi_impl::min_data(&options))
+    Ok(rust_mfi::min_data(&options))
 }
 
 /// Get minimum data length required for MFI calculation with accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "MFI requires exactly 1 option: period",
-        ));
+    if options.len() != rust_mfi::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_mfi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(mfi_impl::min_data_accuracy(&options, decimals))
+    Ok(rust_mfi::min_data_accuracy(&options, decimals))
 }
 
 /// Get output length for MFI calculation
 #[pyfunction]
 pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "MFI requires exactly 1 option: period",
-        ));
+    if options.len() != rust_mfi::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_mfi::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(mfi_impl::output_length(data_len, &options))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tulip_rs::indicator_types::TIndicatorState;
-
-    #[cfg(test)] // #[test]
-    fn test_mfi_basic() {
-        let high = [
-            82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58,
-            86.98, 88.00, 87.87,
-        ];
-        let low = [
-            81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39,
-            85.76, 87.17, 87.01,
-        ];
-        let close = [
-            81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54,
-            86.89, 87.77, 87.29,
-        ];
-        let volume = [
-            1000.0, 1100.0, 900.0, 1200.0, 800.0, 1300.0, 950.0, 1150.0, 1050.0, 1250.0, 1400.0,
-            1000.0, 1100.0, 1350.0, 1200.0,
-        ];
-        let options = vec![14.0];
-
-        let input_refs: [&[f64]; 4] = [&high, &low, &close, &volume];
-        let options_array: [f64; 1] = [options[0]];
-
-        let result = mfi_impl::indicator(&input_refs, &options_array, None);
-        assert!(result.is_ok());
-        let (outputs, _state) = result.unwrap();
-        assert!(!outputs[0].is_empty());
-    }
-
-    #[cfg(test)] // #[test]
-    fn test_mfi_state_continuation() {
-        let high = [
-            82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58,
-            86.98, 88.00, 87.87,
-        ];
-        let low = [
-            81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39,
-            85.76, 87.17, 87.01,
-        ];
-        let close = [
-            81.59, 81.06, 82.87, 83.00, 83.61, 83.15, 82.84, 83.99, 84.55, 84.36, 85.53, 86.54,
-            86.89, 87.77, 87.29,
-        ];
-        let volume = [
-            1000.0, 1100.0, 900.0, 1200.0, 800.0, 1300.0, 950.0, 1150.0, 1050.0, 1250.0, 1400.0,
-            1000.0, 1100.0, 1350.0, 1200.0,
-        ];
-        let options = vec![14.0];
-
-        // Test state continuation
-        let split_point = 10;
-        let input_refs1: [&[f64]; 4] = [
-            &high[..split_point],
-            &low[..split_point],
-            &close[..split_point],
-            &volume[..split_point],
-        ];
-        let input_refs2: [&[f64]; 4] = [
-            &high[split_point..],
-            &low[split_point..],
-            &close[split_point..],
-            &volume[split_point..],
-        ];
-        let options_array: [f64; 1] = [options[0]];
-
-        let (_outputs1, mut state) =
-            mfi_impl::indicator(&input_refs1, &options_array, None).unwrap();
-        let outputs2 = state.batch_indicator(&input_refs2, None).unwrap();
-
-        assert!(!outputs2[0].is_empty());
-    }
+    Ok(rust_mfi::output_length(data_len, &options))
 }

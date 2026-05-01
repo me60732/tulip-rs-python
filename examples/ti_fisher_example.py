@@ -139,6 +139,78 @@ def main():
         f"\nData split: {len(partial_high)} + {len(new_high)} = {len(high)} total elements"
     )
 
+    ################################################### SIMD by Assets Demo
+    print("\n" + "=" * 60)
+    print("SIMD BY ASSETS DEMONSTRATION")
+    print("=" * 60)
+
+    # Create data for 4 assets (SIMD lane requirement: 2, 4, 8, or 16)
+    # Asset 1: Original data
+    asset1_high_vec = np.array(high_vec, copy=True)
+    asset1_low_vec = np.array(low_vec, copy=True)
+
+    # Asset 2: Scaled up data
+    asset2_high_vec = high_vec * 1.2
+    asset2_low_vec = low_vec * 1.2
+
+    # Asset 3: Different trend
+    asset3_high_vec = np.array(
+        [90 + i * 0.5 + v * 0.1 for i, v in enumerate(high_vec)], dtype=np.float64
+    )
+    asset3_low_vec = np.array(
+        [90 + i * 0.5 + v * 0.1 for i, v in enumerate(low_vec)], dtype=np.float64
+    )
+
+    # Asset 4: Inverted trend
+    asset4_high_vec = np.array(
+        [100 - i * 0.3 + v * 0.05 for i, v in enumerate(high_vec)], dtype=np.float64
+    )
+    asset4_low_vec = np.array(
+        [100 - i * 0.3 + v * 0.05 for i, v in enumerate(low_vec)], dtype=np.float64
+    )
+
+    # Prepare SIMD inputs - must be exactly 2, 4, 8, or 16 assets
+    simd_inputs = [
+        [asset1_high_vec, asset1_low_vec],  # Asset 1
+        [asset2_high_vec, asset2_low_vec],  # Asset 2
+        [asset3_high_vec, asset3_low_vec],  # Asset 3
+        [asset4_high_vec, asset4_low_vec],  # Asset 4
+    ]
+
+    print(f"Processing {len(simd_inputs)} assets simultaneously using SIMD...")
+    print("Asset 1: Original data")
+    print("Asset 2: Scaled up (+20% values)")
+    print("Asset 3: Different upward trend")
+    print("Asset 4: Downward trend")
+    print()
+
+    try:
+        # Calculate FISHER for all assets using SIMD
+        simd_outputs, simd_states = tulip_rs.indicators.fisher.simd_by_assets(
+            simd_inputs, options, optional_outputs
+        )
+
+        print("SIMD Results:")
+        for i, (output, state) in enumerate(zip(simd_outputs, simd_states)):
+            print(f"Asset {i + 1} FISHER values: {output[0]}")
+
+        print("\nVerification - calculating each asset individually:")
+        for i, asset_inputs in enumerate(simd_inputs):
+            individual_output, _ = tulip_rs.indicators.fisher.indicator(
+                asset_inputs, options, optional_outputs
+            )
+            print(f"Asset {i + 1} individual: {individual_output[0]}")
+
+            # Verify SIMD matches individual calculation
+            if np.allclose(simd_outputs[i][0], individual_output[0], rtol=1e-10, equal_nan=True):
+                print(f"✓ Asset {i + 1} SIMD matches individual calculation")
+            else:
+                print(f"✗ Asset {i + 1} SIMD does not match individual calculation")
+
+        print("\nSIMD by Assets demonstration completed successfully!")
+
+    except Exception as e:
+        print(f"SIMD by Assets error: {e}")
 
 if __name__ == "__main__":
     main()

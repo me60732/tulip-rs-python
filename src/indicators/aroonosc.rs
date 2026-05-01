@@ -1,6 +1,7 @@
 use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
@@ -87,9 +88,10 @@ pub fn indicator(
         )));
     }
 
-    if options.len() != 1 {
+    if options.len() != rust_aroonosc::OPTIONS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected 1 options, got {}",
+            "Expected {} options, got {}",
+            rust_aroonosc::OPTIONS_WIDTH,
             options.len()
         )));
     }
@@ -97,7 +99,7 @@ pub fn indicator(
     let input_arrays: [&[f64]; rust_aroonosc::INPUTS_WIDTH] =
         [inputs[0].as_slice()?, inputs[1].as_slice()?];
 
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_aroonosc::OPTIONS_WIDTH] = [options[0]];
 
     match rust_aroonosc::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((result, AroonoscState { inner: state })),
@@ -127,4 +129,194 @@ pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> 
 #[pyfunction]
 pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_aroonosc::output_length(data_len, &options))
+}
+
+/// Calculate AROONOSC (Aroon Oscillator) for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// The Aroon Oscillator is the difference between the Aroon Up and Aroon Down indicators.
+/// It oscillates between -100 and +100, with positive values indicating upward momentum
+/// and negative values indicating downward momentum.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [high, low] arrays
+/// - options: Vector containing [period] for the Aroon Oscillator calculation
+/// - optional_outputs: Optional list of booleans for additional outputs (none available for AROONOSC)
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of AROONOSC results for each asset (each asset returns one oscillator line)
+///   - states: Vector of AroonoscState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [high_asset1, low_asset1],  # Asset 1
+///     [high_asset2, low_asset2],  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// # Data for 4 assets, 20 periods each (SIMD requires 2, 4, 8, or 16 assets)
+/// high1 = np.array([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00, 85.90, 86.58, 86.98, 88.00, 87.87, 88.32, 88.76, 89.25, 90.1, 90.5], dtype=np.float64)
+/// low1 = np.array([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11, 84.03, 85.39, 85.76, 87.17, 87.01, 87.5, 88.1, 88.9, 89.2, 89.8], dtype=np.float64)
+///
+/// # Similar data for assets 2, 3, 4...
+///
+/// # Prepare inputs for SIMD processing (must be exactly 2, 4, 8, or 16 assets)
+/// inputs = [
+///     [high1, low1],  # Asset 1
+///     [high2, low2],  # Asset 2
+///     [high3, low3],  # Asset 3
+///     [high4, low4],  # Asset 4
+/// ]
+///
+/// # AROONOSC options: [period]
+/// options = [14.0]  # 14-period Aroon Oscillator
+///
+/// # Calculate AROONOSC for all assets using SIMD
+/// outputs, states = ti.indicators.aroonosc_simd_by_assets(inputs, options, None)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<AroonoscState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
+        ));
+    }
+
+    let num_assets = inputs.len();
+
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
+    }
+
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_aroonosc::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_aroonosc::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
+
+    if options.len() != rust_aroonosc::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_aroonosc::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_aroonosc::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
+
+    for asset_inputs in &inputs {
+        let input_array: [&[f64]; rust_aroonosc::INPUTS_WIDTH] = [
+            asset_inputs[0].as_slice()?, // high
+            asset_inputs[1].as_slice()?, // low
+        ];
+        asset_input_arrays.push(input_array);
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_aroonosc::INPUTS_WIDTH]> =
+        asset_input_arrays.iter().collect();
+
+    let options_array: [f64; rust_aroonosc::OPTIONS_WIDTH] = [options[0]];
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_aroonosc::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_aroonosc::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_aroonosc::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_aroonosc::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_aroonosc::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_aroonosc::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_aroonosc::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_aroonosc::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let aroonosc_states: Vec<AroonoscState> = states
+                .into_iter()
+                .map(|state| AroonoscState { inner: state })
+                .collect();
+            Ok((results, aroonosc_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
+    }
+}
+
+// Auto-register functions for AROONOSC
+pub fn register_aroonosc_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "aroonosc")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<AroonoscState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+    Ok(())
 }

@@ -115,6 +115,70 @@ def main():
         for i in range(1, len(full_outputs)):
             print(f"Verification optional output {i}: {full_outputs[i]}")
 
+    ################################################### SIMD by Assets Demo
+    print("\n" + "=" * 60)
+    print("SIMD BY ASSETS DEMONSTRATION")
+    print("=" * 60)
+
+    # Create data for 4 assets (SIMD lane requirement: 2, 4, 8, or 16)
+    # Asset 1: Original data
+    asset1_close_vec = np.array(close_vec, copy=True)
+
+    # Asset 2: Scaled up data
+    asset2_close_vec = close_vec * 1.2
+
+    # Asset 3: Different trend
+    asset3_close_vec = np.array(
+        [90 + i * 0.5 + v * 0.1 for i, v in enumerate(close_vec)], dtype=np.float64
+    )
+
+    # Asset 4: Inverted trend
+    asset4_close_vec = np.array(
+        [100 - i * 0.3 + v * 0.05 for i, v in enumerate(close_vec)], dtype=np.float64
+    )
+
+    # Prepare SIMD inputs - must be exactly 2, 4, 8, or 16 assets
+    simd_inputs = [
+        [asset1_close_vec],  # Asset 1
+        [asset2_close_vec],  # Asset 2
+        [asset3_close_vec],  # Asset 3
+        [asset4_close_vec],  # Asset 4
+    ]
+
+    print(f"Processing {len(simd_inputs)} assets simultaneously using SIMD...")
+    print("Asset 1: Original data")
+    print("Asset 2: Scaled up (+20% values)")
+    print("Asset 3: Different upward trend")
+    print("Asset 4: Downward trend")
+    print()
+
+    try:
+        # Calculate MOM for all assets using SIMD
+        simd_outputs, simd_states = tulip_rs.indicators.mom.simd_by_assets(
+            simd_inputs, options, optional_outputs
+        )
+
+        print("SIMD Results:")
+        for i, (output, state) in enumerate(zip(simd_outputs, simd_states)):
+            print(f"Asset {i + 1} MOM values: {output[0]}")
+
+        print("\nVerification - calculating each asset individually:")
+        for i, asset_inputs in enumerate(simd_inputs):
+            individual_output, _ = tulip_rs.indicators.mom.indicator(
+                asset_inputs, options, optional_outputs
+            )
+            print(f"Asset {i + 1} individual: {individual_output[0]}")
+
+            # Verify SIMD matches individual calculation
+            if np.allclose(simd_outputs[i][0], individual_output[0], rtol=1e-10, equal_nan=True):
+                print(f"✓ Asset {i + 1} SIMD matches individual calculation")
+            else:
+                print(f"✗ Asset {i + 1} SIMD does not match individual calculation")
+
+        print("\nSIMD by Assets demonstration completed successfully!")
+
+    except Exception as e:
+        print(f"SIMD by Assets error: {e}")
 
 if __name__ == "__main__":
     main()

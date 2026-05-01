@@ -1,15 +1,18 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::sma as sma_impl;
+use tulip_rs::indicators::sma as rust_sma;
 
 /// SMA State wrapper for Python
 #[pyclass]
+#[derive(Serialize, Deserialize)]
 pub struct SmaState {
-    inner: sma_impl::IndicatorState,
+    inner: rust_sma::IndicatorState,
 }
 
 #[pymethods]
@@ -32,16 +35,16 @@ impl SmaState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != sma_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_sma::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "SMA requires {} input arrays, got {}",
-                sma_impl::INPUTS_WIDTH,
+                rust_sma::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
         // Direct extraction for single input (SMA only takes 1 input)
-        let inputs_array: [&[f64]; sma_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        let inputs_array: [&[f64]; rust_sma::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
         match TIndicatorState::batch_indicator(
             &mut self.inner,
@@ -114,19 +117,21 @@ pub fn indicator(
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, SmaState)> {
     // Validate inputs count
-    if inputs.len() != sma_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_sma::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "SMA requires {} input arrays, got {}",
-            sma_impl::INPUTS_WIDTH,
+            rust_sma::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
     // Validate options count
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "SMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_sma::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_sma::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
     // Validate period
@@ -137,12 +142,12 @@ pub fn indicator(
     }
 
     // Direct extraction for single input (SMA only takes 1 input)
-    let inputs_array: [&[f64]; sma_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let inputs_array: [&[f64]; rust_sma::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     // Convert options to fixed-size array
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_sma::OPTIONS_WIDTH] = [options[0]];
 
-    match sma_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_sma::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => {
             let py_state = SmaState { inner: state };
             Ok((outputs, py_state))
@@ -157,103 +162,255 @@ pub fn indicator(
 /// Get SMA info
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = sma_impl::info();
+    let info = rust_sma::info();
     Ok(info_to_hashmap(info))
+}
+
+/// Register the SMA indicator module with Python
+///
+/// This function creates a Python submodule for the SMA indicator and registers
+/// all its functions and classes.
+///
+/// # Arguments
+/// * `parent_module` - The parent module to register this indicator under
+///
+/// # Returns
+/// * `PyResult<()>` - Success or error from registration
+pub fn register_sma_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "sma")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<SmaState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+
+    Ok(())
 }
 
 /// Get minimum data required
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "SMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_sma::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_sma::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    let options_array: [f64; 1] = [options[0]];
-    Ok(sma_impl::min_data(&options_array))
+    let options_array: [f64; rust_sma::OPTIONS_WIDTH] = [options[0]];
+    Ok(rust_sma::min_data(&options_array))
 }
 
 /// Get expected output length
 #[pyfunction]
 pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "SMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_sma::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_sma::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    let options_array: [f64; 1] = [options[0]];
-    Ok(sma_impl::output_length(data_length, &options_array))
+    let options_array: [f64; rust_sma::OPTIONS_WIDTH] = [options[0]];
+    Ok(rust_sma::output_length(data_length, &options_array))
 }
 
 /// Get minimum data required for accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "SMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_sma::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_sma::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    let options_array: [f64; 1] = [options[0]];
-    Ok(sma_impl::min_data_accuracy(&options_array, decimals))
+    let options_array: [f64; rust_sma::OPTIONS_WIDTH] = [options[0]];
+    Ok(rust_sma::min_data_accuracy(&options_array, decimals))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::{PyArray1, PyArrayMethods};
-    use pyo3::Python;
-
-    #[cfg(test)] // #[test]
-    fn test_sma_basic() {
-        
-        Python::with_gil(|py| {
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![3.0];
-
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs.len(), 1); // SMA has 1 output
-            assert_eq!(outputs[0].len(), 3); // 5 - 3 + 1 = 3
-
-            // Expected: [2.0, 3.0, 4.0]
-            assert!((outputs[0][0] - 2.0).abs() < 1e-10);
-            assert!((outputs[0][1] - 3.0).abs() < 1e-10);
-            assert!((outputs[0][2] - 4.0).abs() < 1e-10);
-        });
+/// Calculate SMA (Simple Moving Average) for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// The Simple Moving Average (SMA) calculates the arithmetic mean of a given set
+/// of values over a specified number of periods. It's one of the most basic and
+/// widely used technical indicators.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [real] arrays
+/// - options: Vector containing [period] for the SMA calculation
+/// - optional_outputs: Optional list of booleans for additional outputs (none available for SMA)
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of SMA results for each asset (each asset returns one SMA line)
+///   - states: Vector of SmaState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [real_asset1],  # Asset 1
+///     [real_asset2],  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// # Data for 4 assets, 10 periods each (SIMD requires 2, 4, 8, or 16 assets)
+/// real1 = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0], dtype=np.float64)
+/// real2 = np.array([11.0, 12.0, 13.0, 14.0, 15.0, 16.0, 17.0, 18.0, 19.0, 20.0], dtype=np.float64)
+/// real3 = np.array([21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0], dtype=np.float64)
+/// real4 = np.array([31.0, 32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0], dtype=np.float64)
+///
+/// # Prepare inputs for SIMD processing (must be exactly 2, 4, 8, or 16 assets)
+/// inputs = [
+///     [real1],  # Asset 1
+///     [real2],  # Asset 2
+///     [real3],  # Asset 3
+///     [real4],  # Asset 4
+/// ]
+///
+/// # SMA options: [period]
+/// options = [3]  # 3-period SMA
+///
+/// # Calculate SMA for all assets using SIMD
+/// outputs, states = ti.indicators.sma_simd_by_assets(inputs, options, None)
+///
+/// # outputs[0] contains SMA values for asset 1
+/// # outputs[1] contains SMA values for asset 2
+/// # outputs[2] contains SMA values for asset 3
+/// # outputs[3] contains SMA values for asset 4
+/// # states[0] contains the state for asset 1 (for continuation)
+/// # states[1] contains the state for asset 2 (for continuation)
+/// # states[2] contains the state for asset 3 (for continuation)
+/// # states[3] contains the state for asset 4 (for continuation)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<SmaState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
+        ));
     }
 
-    #[cfg(test)] // #[test]
-    fn test_sma_batch_indicator() {
-        
-        Python::with_gil(|py| {
-            // Initial calculation
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
+    let num_assets = inputs.len();
 
-            let inputs = vec![readonly];
-            let options = vec![3.0];
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
+    }
 
-            let (outputs, mut state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs[0].len(), 3);
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_sma::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_sma::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
 
-            // Continue with new data
-            let new_data = vec![6.0, 7.0];
-            let new_py_array = PyArray1::from_vec(py, new_data);
-            let new_readonly = new_py_array.readonly();
+    if options.len() != rust_sma::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_sma::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
 
-            let new_inputs = vec![new_readonly];
-            let continued_outputs = state.batch_indicator(new_inputs, None).unwrap();
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_sma::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
 
-            assert_eq!(continued_outputs.len(), 1);
-            assert_eq!(continued_outputs[0].len(), 2); // 2 new values
+    for asset_inputs in &inputs {
+        let input_array: [&[f64]; rust_sma::INPUTS_WIDTH] = [
+            asset_inputs[0].as_slice()?, // real
+        ];
+        asset_input_arrays.push(input_array);
+    }
 
-            // Expected: [5.0, 6.0] (averages of [4,5,6] and [5,6,7])
-            assert!((continued_outputs[0][0] - 5.0).abs() < 1e-10);
-            assert!((continued_outputs[0][1] - 6.0).abs() < 1e-10);
-        });
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_sma::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+
+    let options_array: [f64; rust_sma::OPTIONS_WIDTH] = [options[0]];
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_sma::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_sma::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_sma::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_sma::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_sma::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_sma::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_sma::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_sma::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let sma_states: Vec<SmaState> = states
+                .into_iter()
+                .map(|state| SmaState { inner: state })
+                .collect();
+            Ok((results, sma_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
     }
 }

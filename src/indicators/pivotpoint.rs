@@ -1,6 +1,7 @@
 use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
@@ -90,9 +91,10 @@ pub fn indicator(
         )));
     }
 
-    if options.len() != 1 {
+    if options.len() != rust_pivotpoint::OPTIONS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected 1 option, got {}",
+            "Expected {} options, got {}",
+            rust_pivotpoint::OPTIONS_WIDTH,
             options.len()
         )));
     }
@@ -103,7 +105,7 @@ pub fn indicator(
         inputs[2].as_slice()?,
     ];
 
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_pivotpoint::OPTIONS_WIDTH] = [options[0]];
 
     match rust_pivotpoint::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((result, PivotpointState { inner: state })),
@@ -133,4 +135,19 @@ pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> 
 #[pyfunction]
 pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_pivotpoint::output_length(data_len, &options))
+}
+
+pub fn register_pivotpoint_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "pivotpoint")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+
+    submodule.add_class::<PivotpointState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+    Ok(())
 }

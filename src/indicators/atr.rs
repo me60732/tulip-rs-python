@@ -1,15 +1,18 @@
 use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::atr as atr_impl;
+use tulip_rs::indicators::atr as rust_atr;
 
 /// ATR State wrapper for Python
 #[pyclass]
+#[derive(Serialize, Deserialize)]
 pub struct AtrState {
-    inner: atr_impl::IndicatorState,
+    inner: rust_atr::IndicatorState,
 }
 
 #[pymethods]
@@ -32,16 +35,16 @@ impl AtrState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != atr_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_atr::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "ATR requires {} input arrays, got {}",
-                atr_impl::INPUTS_WIDTH,
+                rust_atr::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
-        // Direct extraction for three inputs (ATR takes high, low, close)
-        let inputs_array: [&[f64]; atr_impl::INPUTS_WIDTH] = [
+        // Direct extraction for three inputs (high, low, close)
+        let inputs_array: [&[f64]; rust_atr::INPUTS_WIDTH] = [
             inputs[0].as_slice()?,
             inputs[1].as_slice()?,
             inputs[2].as_slice()?,
@@ -120,19 +123,21 @@ pub fn indicator(
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, AtrState)> {
     // Validate inputs count
-    if inputs.len() != atr_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_atr::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "ATR requires {} input arrays, got {}",
-            atr_impl::INPUTS_WIDTH,
+            rust_atr::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
     // Validate options count
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "ATR requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_atr::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_atr::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
     // Validate period
@@ -143,16 +148,16 @@ pub fn indicator(
     }
 
     // Direct extraction for three inputs (ATR takes high, low, close)
-    let inputs_array: [&[f64]; atr_impl::INPUTS_WIDTH] = [
+    let inputs_array: [&[f64]; rust_atr::INPUTS_WIDTH] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
         inputs[2].as_slice()?,
     ];
 
     // Convert options to fixed-size array
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_atr::OPTIONS_WIDTH] = [options[0]];
 
-    match atr_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_atr::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => {
             let py_state = AtrState { inner: state };
             Ok((outputs, py_state))
@@ -167,152 +172,209 @@ pub fn indicator(
 /// Get ATR info
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = atr_impl::info();
+    let info = rust_atr::info();
     Ok(info_to_hashmap(info))
 }
 
 /// Get minimum data required
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "ATR requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_atr::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_atr::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(atr_impl::min_data(&options))
+    Ok(rust_atr::min_data(&options))
 }
 
 /// Get expected output length
 #[pyfunction]
 pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "ATR requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_atr::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_atr::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(atr_impl::output_length(data_length, &options))
+    Ok(rust_atr::output_length(data_length, &options))
 }
 
 /// Get minimum data required for accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "ATR requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_atr::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_atr::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(atr_impl::min_data_accuracy(&options, decimals))
+    Ok(rust_atr::min_data_accuracy(&options, decimals))
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::{PyArray1, PyArrayMethods};
-    use pyo3::Python;
-
-    #[cfg(test)] // #[test]
-    fn test_atr_basic() {
-        
-        Python::with_gil(|py| {
-            let high = vec![82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0, 91.0];
-            let low = vec![80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0];
-            let close = vec![81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0, 89.0, 90.0];
-
-            let high_array = PyArray1::from_vec(py, high);
-            let low_array = PyArray1::from_vec(py, low);
-            let close_array = PyArray1::from_vec(py, close);
-
-            let inputs = vec![
-                high_array.readonly(),
-                low_array.readonly(),
-                close_array.readonly(),
-            ];
-            let options = vec![5.0]; // ATR period = 5
-
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs.len(), 1); // ATR has 1 output by default
-            assert!(outputs[0].len() > 0); // Should have some output
-        });
+/// Calculate ATR for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs for ATR calculation
+/// - options: Vector of options for ATR calculation
+/// - optional_outputs: Optional list of booleans for additional outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of ATR results for each asset
+///   - states: Vector of AtrState objects for continuing calculations
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<AtrState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
+        ));
     }
 
-    #[cfg(test)] // #[test]
-    fn test_atr_batch_indicator() {
-        
-        Python::with_gil(|py| {
-            // Initial calculation
-            let high = vec![82.0, 83.0, 84.0, 85.0, 86.0, 87.0, 88.0];
-            let low = vec![80.0, 81.0, 82.0, 83.0, 84.0, 85.0, 86.0];
-            let close = vec![81.0, 82.0, 83.0, 84.0, 85.0, 86.0, 87.0];
+    let num_assets = inputs.len();
 
-            let high_array = PyArray1::from_vec(py, high);
-            let low_array = PyArray1::from_vec(py, low);
-            let close_array = PyArray1::from_vec(py, close);
-
-            let inputs = vec![
-                high_array.readonly(),
-                low_array.readonly(),
-                close_array.readonly(),
-            ];
-            let options = vec![5.0];
-
-            let (outputs, mut state) = indicator(inputs, options, None).unwrap();
-            let _ = outputs[0].len();
-
-            // Continue with new data
-            let new_high = vec![89.0, 90.0];
-            let new_low = vec![87.0, 88.0];
-            let new_close = vec![88.0, 89.0];
-
-            let new_high_array = PyArray1::from_vec(py, new_high);
-            let new_low_array = PyArray1::from_vec(py, new_low);
-            let new_close_array = PyArray1::from_vec(py, new_close);
-
-            let new_inputs = vec![
-                new_high_array.readonly(),
-                new_low_array.readonly(),
-                new_close_array.readonly(),
-            ];
-            let continued_outputs = state.batch_indicator(new_inputs, None).unwrap();
-
-            assert_eq!(continued_outputs.len(), 1);
-            assert_eq!(continued_outputs[0].len(), 2); // 2 new values
-        });
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
     }
 
-    #[cfg(test)] // #[test]
-    fn test_atr_validation() {
-        
-        Python::with_gil(|py| {
-            let high = vec![82.0, 83.0, 84.0];
-            let low = vec![80.0, 81.0, 82.0];
-            let close = vec![81.0, 82.0, 83.0];
-
-            let high_array = PyArray1::from_vec(py, high);
-            let low_array = PyArray1::from_vec(py, low);
-            let close_array = PyArray1::from_vec(py, close);
-
-            // Test wrong number of inputs
-            let inputs = vec![high_array.readonly(), low_array.readonly()]; // Missing close
-            let result = indicator(inputs, vec![5.0], None);
-            assert!(result.is_err());
-
-            // Test wrong number of options
-            let inputs = vec![
-                high_array.readonly(),
-                low_array.readonly(),
-                close_array.readonly(),
-            ];
-            let result = indicator(inputs, vec![5.0, 10.0], None); // Too many options
-            assert!(result.is_err());
-
-            // Test invalid period
-            let inputs = vec![
-                high_array.readonly(),
-                low_array.readonly(),
-                close_array.readonly(),
-            ];
-            let result = indicator(inputs, vec![0.0], None); // Invalid period
-            assert!(result.is_err());
-        });
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_atr::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_atr::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
     }
+
+    if options.len() != rust_atr::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_atr::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_atr::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
+
+    for asset_inputs in &inputs {
+        let input_array: Result<[&[f64]; rust_atr::INPUTS_WIDTH], _> = asset_inputs
+            .iter()
+            .map(|arr| arr.as_slice())
+            .collect::<Result<Vec<_>, _>>()?
+            .try_into();
+
+        match input_array {
+            Ok(arr) => asset_input_arrays.push(arr),
+            Err(_) => {
+                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+                    "Failed to convert input arrays",
+                ))
+            }
+        }
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_atr::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+
+    let options_array: Result<[f64; rust_atr::OPTIONS_WIDTH], _> = options.try_into();
+    let options_array = options_array.map_err(|_| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Failed to convert options to array of length {}",
+            rust_atr::OPTIONS_WIDTH
+        ))
+    })?;
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_atr::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_atr::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_atr::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_atr::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_atr::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_atr::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_atr::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_atr::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let atr_states: Vec<AtrState> = states
+                .into_iter()
+                .map(|state| AtrState { inner: state })
+                .collect();
+            Ok((results, atr_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
+    }
+}
+
+// Auto-register functions for ATR
+pub fn register_atr_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "atr")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<AtrState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+    Ok(())
 }

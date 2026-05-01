@@ -1,15 +1,16 @@
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
+use pyo3::types::PyModule;
 use std::collections::HashMap;
 
 use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::tema as tema_impl;
+use tulip_rs::indicators::tema as rust_tema;
 
 /// TEMA State wrapper for Python
 #[pyclass]
 pub struct TemaState {
-    inner: tema_impl::IndicatorState,
+    inner: rust_tema::IndicatorState,
 }
 
 #[pymethods]
@@ -32,16 +33,16 @@ impl TemaState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if inputs.len() != tema_impl::INPUTS_WIDTH {
+        if inputs.len() != rust_tema::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "TEMA requires {} input arrays, got {}",
-                tema_impl::INPUTS_WIDTH,
+                rust_tema::INPUTS_WIDTH,
                 inputs.len()
             )));
         }
 
         // Direct extraction for single input (TEMA only takes 1 input)
-        let inputs_array: [&[f64]; tema_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        let inputs_array: [&[f64]; rust_tema::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
         match TIndicatorState::batch_indicator(
             &mut self.inner,
@@ -114,19 +115,21 @@ pub fn indicator(
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Vec<f64>>, TemaState)> {
     // Validate inputs count
-    if inputs.len() != tema_impl::INPUTS_WIDTH {
+    if inputs.len() != rust_tema::INPUTS_WIDTH {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "TEMA requires {} input arrays, got {}",
-            tema_impl::INPUTS_WIDTH,
+            rust_tema::INPUTS_WIDTH,
             inputs.len()
         )));
     }
 
     // Validate options count
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "TEMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_tema::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_tema::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
 
     // Validate period
@@ -137,12 +140,12 @@ pub fn indicator(
     }
 
     // Direct extraction for single input (TEMA only takes 1 input)
-    let inputs_array: [&[f64]; tema_impl::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let inputs_array: [&[f64]; rust_tema::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     // Convert options to fixed-size array
-    let options_array: [f64; 1] = [options[0]];
+    let options_array: [f64; rust_tema::OPTIONS_WIDTH] = [options[0]];
 
-    match tema_impl::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match rust_tema::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => {
             let py_state = TemaState { inner: state };
             Ok((outputs, py_state))
@@ -157,91 +160,248 @@ pub fn indicator(
 /// Get TEMA info
 #[pyfunction]
 pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = tema_impl::info();
+    let info = rust_tema::info();
     Ok(info_to_hashmap(info))
+}
+
+/// Calculate Triple Exponential Moving Average for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// The Triple Exponential Moving Average (TEMA) reduces the lag of traditional
+/// moving averages by applying triple smoothing.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [real] arrays
+/// - options: Vector with 1 option [period]
+/// - optional_outputs: Optional list of booleans for selecting outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of TEMA results for each asset
+///   - states: Vector of TemaState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [real_asset1],  # Asset 1
+///     [real_asset2],  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// # Data for 4 assets, 20 periods each (SIMD requires 2, 4, 8, or 16 assets)
+/// real1 = np.array([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], dtype=np.float64)
+/// real2 = np.array([11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30], dtype=np.float64)
+/// real3 = np.array([21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40], dtype=np.float64)
+/// real4 = np.array([31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50], dtype=np.float64)
+///
+/// # Prepare inputs for SIMD processing (must be exactly 2, 4, 8, or 16 assets)
+/// inputs = [
+///     [real1],  # Asset 1
+///     [real2],  # Asset 2
+///     [real3],  # Asset 3
+///     [real4],  # Asset 4
+/// ]
+///
+/// # Calculate TEMA for all assets using SIMD
+/// outputs, states = ti.indicators.tema.simd_by_assets(inputs, [5.0], None)
+///
+/// # outputs[0] contains TEMA values for asset 1
+/// # outputs[1] contains TEMA values for asset 2
+/// # outputs[2] contains TEMA values for asset 3
+/// # outputs[3] contains TEMA values for asset 4
+/// # states[0] contains the state for asset 1 (for continuation)
+/// # states[1] contains the state for asset 2 (for continuation)
+/// # states[2] contains the state for asset 3 (for continuation)
+/// # states[3] contains the state for asset 4 (for continuation)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_assets(
+    inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
+    options: Vec<f64>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<TemaState>)> {
+    if inputs.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No assets provided",
+        ));
+    }
+
+    let num_assets = inputs.len();
+
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_assets, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by assets only supports 2, 4, 8, or 16 assets. Got {}",
+            num_assets
+        )));
+    }
+
+    // Validate that each asset has the correct number of inputs
+    for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
+        if asset_inputs.len() != rust_tema::INPUTS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Asset {} expected {} inputs, got {}",
+                asset_idx,
+                rust_tema::INPUTS_WIDTH,
+                asset_inputs.len()
+            )));
+        }
+    }
+
+    if options.len() != rust_tema::OPTIONS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            rust_tema::OPTIONS_WIDTH,
+            options.len()
+        )));
+    }
+
+    // Convert Python arrays to Rust slices for each asset
+    let mut asset_input_arrays: Vec<[&[f64]; rust_tema::INPUTS_WIDTH]> =
+        Vec::with_capacity(num_assets);
+
+    for asset_inputs in &inputs {
+        let input_array: [&[f64]; rust_tema::INPUTS_WIDTH] = [
+            asset_inputs[0].as_slice()?, // real
+        ];
+        asset_input_arrays.push(input_array);
+    }
+
+    // Create array of references for the by_assets function
+    let input_refs: Vec<&[&[f64]; rust_tema::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+
+    let options_array: [f64; rust_tema::OPTIONS_WIDTH] = [options[0]];
+
+    // Call the SIMD by assets function with proper const generic
+    let result = match num_assets {
+        2 => {
+            let input_array: &[&[&[f64]; rust_tema::INPUTS_WIDTH]; 2] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_tema::by_assets::indicator::<2>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let input_array: &[&[&[f64]; rust_tema::INPUTS_WIDTH]; 4] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_tema::by_assets::indicator::<4>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let input_array: &[&[&[f64]; rust_tema::INPUTS_WIDTH]; 8] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_tema::by_assets::indicator::<8>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let input_array: &[&[&[f64]; rust_tema::INPUTS_WIDTH]; 16] =
+                input_refs.as_slice().try_into().unwrap();
+            rust_tema::by_assets::indicator::<16>(
+                input_array,
+                &options_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let tema_states: Vec<TemaState> = states
+                .into_iter()
+                .map(|state| TemaState { inner: state })
+                .collect();
+            Ok((results, tema_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by assets calculation failed: {:?}",
+            e
+        ))),
+    }
+}
+
+/// Register the TEMA indicator module with Python
+///
+/// This function creates a Python submodule for the TEMA indicator and registers
+/// all its functions and classes.
+///
+/// # Arguments
+/// * `parent_module` - The parent module to register this indicator under
+///
+/// # Returns
+/// * `PyResult<()>` - Success or error from registration
+pub fn register_tema_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
+    let submodule = PyModule::new(parent_module.py(), "tema")?;
+
+    submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_class::<TemaState>()?;
+
+    parent_module.add_submodule(&submodule)?;
+
+    Ok(())
 }
 
 /// Get minimum data required
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "TEMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_tema::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_tema::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(tema_impl::min_data(&options))
+    Ok(rust_tema::min_data(&options))
 }
 
 /// Get expected output length
 #[pyfunction]
 pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "TEMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_tema::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_tema::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(tema_impl::output_length(data_length, &options))
+    Ok(rust_tema::output_length(data_length, &options))
 }
 
 /// Get minimum data required for accuracy
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "TEMA requires exactly 1 option (period)",
-        ));
+    if options.len() != rust_tema::OPTIONS_WIDTH {
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "Expected {} options, got {}",
+            rust_tema::OPTIONS_WIDTH,
+            options.len()
+        )));
     }
-    Ok(tema_impl::min_data_accuracy(&options, decimals))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use numpy::{PyArray1, PyArrayMethods};
-    use pyo3::Python;
-
-    #[cfg(test)] // #[test]
-    fn test_tema_basic() {
-        
-        Python::with_gil(|py| {
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![3.0];
-
-            let (outputs, _state) = indicator(inputs, options, None).unwrap();
-            assert_eq!(outputs.len(), 1); // TEMA has 1 output
-            assert!(outputs[0].len() > 0); // Should have some output
-        });
-    }
-
-    #[cfg(test)] // #[test]
-    fn test_tema_batch_indicator() {
-        
-        Python::with_gil(|py| {
-            // Initial calculation
-            let data = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0];
-            let py_array = PyArray1::from_vec(py, data);
-            let readonly = py_array.readonly();
-
-            let inputs = vec![readonly];
-            let options = vec![3.0];
-
-            let (outputs, mut state) = indicator(inputs, options, None).unwrap();
-            let _ = outputs[0].len();
-
-            // Continue with new data
-            let new_data = vec![9.0, 10.0];
-            let new_py_array = PyArray1::from_vec(py, new_data);
-            let new_readonly = new_py_array.readonly();
-
-            let new_inputs = vec![new_readonly];
-            let continued_outputs = state.batch_indicator(new_inputs, None).unwrap();
-
-            assert_eq!(continued_outputs.len(), 1);
-            assert_eq!(continued_outputs[0].len(), 2); // 2 new values
-        });
-    }
+    Ok(rust_tema::min_data_accuracy(&options, decimals))
 }
