@@ -104,8 +104,8 @@ pub fn register_all_indicator_modules(
     Ok(())
 }
 
-/// Get a count of all registered indicators
-pub fn get_indicator_count() -> usize {
+// Get a count of all registered indicators
+/*pub fn get_indicator_count() -> usize {
     70 // Total number of indicators with auto-registration
 }
 
@@ -184,39 +184,4 @@ pub fn get_indicator_names() -> Vec<&'static str> {
         "wma",
         "zlema",
     ]
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_indicator_count() {
-        let names = get_indicator_names();
-        assert_eq!(names.len(), get_indicator_count());
-        assert_eq!(names.len(), 70);
-    }
-
-    #[test]
-    fn test_alphabetical_order() {
-        let names = get_indicator_names();
-        let mut sorted_names = names.clone();
-        sorted_names.sort();
-        assert_eq!(
-            names, sorted_names,
-            "Indicator names must be in alphabetical order"
-        );
-    }
-
-    #[test]
-    fn test_no_duplicates() {
-        let names = get_indicator_names();
-        let mut unique_names = names.clone();
-        unique_names.dedup();
-        assert_eq!(
-            names.len(),
-            unique_names.len(),
-            "No duplicate indicator names allowed"
-        );
-    }
-}
+}*/

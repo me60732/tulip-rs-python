@@ -71,7 +71,7 @@ pub mod willr;
 pub mod wma;
 pub mod zlema;
 
-pub use sma::{
+/*pub use sma::{
     indicator as sma_indicator, info as sma_info, min_data as sma_min_data,
     min_data_accuracy as sma_min_data_accuracy, output_length as sma_output_length, SmaState,
 };
@@ -440,4 +440,4 @@ pub use wilders::{
 pub use zlema::{
     indicator as zlema_indicator, info as zlema_info, min_data as zlema_min_data,
     min_data_accuracy as zlema_min_data_accuracy, output_length as zlema_output_length, ZlemaState,
-};
+};*/
