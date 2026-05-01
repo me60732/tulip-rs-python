@@ -11,6 +11,7 @@ This example demonstrates:
 
 try:
     import numpy as np
+
     import tulip_rs
 except ImportError as e:
     print(f"Import error: {e}")
@@ -225,10 +226,30 @@ def main():
 
     # Prepare SIMD inputs - must be exactly 2, 4, 8, or 16 assets
     simd_inputs = [
-        [asset1_high_vec, asset1_low_vec, asset1_close_vec, asset1_volume_vec],  # Asset 1
-        [asset2_high_vec, asset2_low_vec, asset2_close_vec, asset2_volume_vec],  # Asset 2
-        [asset3_high_vec, asset3_low_vec, asset3_close_vec, asset3_volume_vec],  # Asset 3
-        [asset4_high_vec, asset4_low_vec, asset4_close_vec, asset4_volume_vec],  # Asset 4
+        [
+            asset1_high_vec,
+            asset1_low_vec,
+            asset1_close_vec,
+            asset1_volume_vec,
+        ],  # Asset 1
+        [
+            asset2_high_vec,
+            asset2_low_vec,
+            asset2_close_vec,
+            asset2_volume_vec,
+        ],  # Asset 2
+        [
+            asset3_high_vec,
+            asset3_low_vec,
+            asset3_close_vec,
+            asset3_volume_vec,
+        ],  # Asset 3
+        [
+            asset4_high_vec,
+            asset4_low_vec,
+            asset4_close_vec,
+            asset4_volume_vec,
+        ],  # Asset 4
     ]
 
     print(f"Processing {len(simd_inputs)} assets simultaneously using SIMD...")
@@ -256,7 +277,9 @@ def main():
             print(f"Asset {i + 1} individual: {individual_output[0]}")
 
             # Verify SIMD matches individual calculation
-            if np.allclose(simd_outputs[i][0], individual_output[0], rtol=1e-10, equal_nan=True):
+            if np.allclose(
+                simd_outputs[i][0], individual_output[0], rtol=1e-10, equal_nan=True
+            ):
                 print(f"✓ Asset {i + 1} SIMD matches individual calculation")
             else:
                 print(f"✗ Asset {i + 1} SIMD does not match individual calculation")
@@ -265,6 +288,66 @@ def main():
 
     except Exception as e:
         print(f"SIMD by Assets error: {e}")
+
+    ################################################### SIMD by Options Demo
+    print("\n" + "=" * 60)
+    print("SIMD BY OPTIONS DEMONSTRATION")
+    print("=" * 60)
+
+    # Expand inputs to ensure we have enough data for larger period options
+    expanded_high = np.tile(high, 20).astype(np.float64)
+    expanded_low = np.tile(low, 20).astype(np.float64)
+    expanded_close = np.tile(close, 20).astype(np.float64)
+    expanded_volume = np.tile(volume, 20).astype(np.float64)
+    expanded_inputs = [expanded_high, expanded_low, expanded_close, expanded_volume]
+
+    # Prepare SIMD options - must be exactly 2, 4, 8, or 16 option sets
+    simd_options = [
+        [3.0, 10.0],  # Option set 1 (Original)
+        [4.0, 12.0],  # Option set 2
+        [5.0, 15.0],  # Option set 3
+        [6.0, 20.0],  # Option set 4
+    ]
+
+    print(f"Processing {len(simd_options)} option sets simultaneously using SIMD...")
+    for i, opt in enumerate(simd_options):
+        print(f"Option set {i + 1}: {opt}")
+    print()
+
+    try:
+        # Calculate ADOSC for all option sets using SIMD
+        simd_opt_outputs, simd_opt_states = tulip_rs.indicators.adosc.simd_by_options(
+            expanded_inputs, simd_options
+        )
+
+        print("SIMD Results:")
+        for i, (output, state) in enumerate(zip(simd_opt_outputs, simd_opt_states)):
+            print(f"Option set {i + 1} ADOSC values (first 5): {output[0][:5]}")
+
+        print("\nVerification - calculating each option set individually:")
+        for i, opt in enumerate(simd_options):
+            individual_output, _ = tulip_rs.indicators.adosc.indicator(
+                expanded_inputs, opt
+            )
+            print(
+                f"Option set {i + 1} individual (first 5): {individual_output[0][:5]}"
+            )
+
+            # Verify SIMD matches individual calculation
+            if np.allclose(
+                simd_opt_outputs[i][0], individual_output[0], rtol=1e-10, equal_nan=True
+            ):
+                print(f"✓ Option set {i + 1} SIMD matches individual calculation")
+            else:
+                print(
+                    f"✗ Option set {i + 1} SIMD does not match individual calculation"
+                )
+
+        print("\nSIMD by Options demonstration completed successfully!")
+
+    except Exception as e:
+        print(f"SIMD by Options error: {e}")
+
 
 if __name__ == "__main__":
     main()

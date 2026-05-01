@@ -316,6 +316,130 @@ pub fn simd_by_assets(
     }
 }
 
+/// Calculate ADOSC (Chaikin A/D Oscillator) for a single asset with multiple options using SIMD
+///
+/// Parameters:
+/// - inputs: List of numpy arrays [high, low, close, volume]
+/// - options: List of option arrays, where each array contains [fast_period, slow_period]
+/// - optional_outputs: Optional list of booleans for additional outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of ADOSC results for each option set
+///   - states: Vector of AdoscState objects for continuing calculations
+#[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
+pub fn simd_by_options(
+    inputs: Vec<PyReadonlyArray1<f64>>,
+    options: Vec<Vec<f64>>,
+    optional_outputs: Option<Vec<bool>>,
+) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<AdoscState>)> {
+    if options.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "No options provided",
+        ));
+    }
+
+    let num_options = options.len();
+
+    // Validate SIMD lane count - only support powers of 2
+    if !matches!(num_options, 2 | 4 | 8 | 16) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "SIMD by options only supports 2, 4, 8, or 16 options. Got {}",
+            num_options
+        )));
+    }
+
+    if inputs.len() != rust_adosc::INPUTS_WIDTH {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} inputs, got {}",
+            rust_adosc::INPUTS_WIDTH,
+            inputs.len()
+        )));
+    }
+
+    for (opt_idx, opt) in options.iter().enumerate() {
+        if opt.len() != rust_adosc::OPTIONS_WIDTH {
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "Option set {} expected {} values, got {}",
+                opt_idx,
+                rust_adosc::OPTIONS_WIDTH,
+                opt.len()
+            )));
+        }
+    }
+
+    let input_arrays: [&[f64]; rust_adosc::INPUTS_WIDTH] = [
+        inputs[0].as_slice()?, // high
+        inputs[1].as_slice()?, // low
+        inputs[2].as_slice()?, // close
+        inputs[3].as_slice()?, // volume
+    ];
+
+    let mut option_arrays: Vec<[f64; rust_adosc::OPTIONS_WIDTH]> = Vec::with_capacity(num_options);
+
+    for opt in &options {
+        option_arrays.push([opt[0], opt[1]]);
+    }
+
+    let option_refs: Vec<&[f64; rust_adosc::OPTIONS_WIDTH]> = option_arrays.iter().collect();
+
+    // Call the SIMD by options function with proper const generic
+    let result = match num_options {
+        2 => {
+            let opt_array: &[&[f64; rust_adosc::OPTIONS_WIDTH]; 2] =
+                option_refs.as_slice().try_into().unwrap();
+            rust_adosc::by_options::indicator::<2>(
+                &input_arrays,
+                opt_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        4 => {
+            let opt_array: &[&[f64; rust_adosc::OPTIONS_WIDTH]; 4] =
+                option_refs.as_slice().try_into().unwrap();
+            rust_adosc::by_options::indicator::<4>(
+                &input_arrays,
+                opt_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        8 => {
+            let opt_array: &[&[f64; rust_adosc::OPTIONS_WIDTH]; 8] =
+                option_refs.as_slice().try_into().unwrap();
+            rust_adosc::by_options::indicator::<8>(
+                &input_arrays,
+                opt_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        16 => {
+            let opt_array: &[&[f64; rust_adosc::OPTIONS_WIDTH]; 16] =
+                option_refs.as_slice().try_into().unwrap();
+            rust_adosc::by_options::indicator::<16>(
+                &input_arrays,
+                opt_array,
+                optional_outputs.as_deref(),
+            )
+        }
+        _ => unreachable!("Already validated SIMD lane count"),
+    };
+
+    match result {
+        Ok((results, states)) => {
+            let adosc_states: Vec<AdoscState> = states
+                .into_iter()
+                .map(|state| AdoscState { inner: state })
+                .collect();
+            Ok((results, adosc_states))
+        }
+        Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
+            "SIMD by options calculation failed: {:?}",
+            e
+        ))),
+    }
+}
+
 /// Register the ADOSC indicator module with Python
 ///
 /// This function creates a Python submodule for the ADOSC indicator and registers
@@ -335,6 +459,7 @@ pub fn register_adosc_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3:
     submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
     submodule.add_class::<AdoscState>()?;
 
     parent_module.add_submodule(&submodule)?;

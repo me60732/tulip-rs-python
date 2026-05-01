@@ -186,5 +186,61 @@ def main():
     except Exception as e:
         print(f"SIMD by Assets error: {e}")
 
+    ################################################### SIMD by Options Demo
+    print("\n" + "=" * 60)
+    print("SIMD BY OPTIONS DEMONSTRATION")
+    print("=" * 60)
+
+    # Expand inputs to ensure we have enough data for larger period options
+    expanded_close = np.tile(close, 20).astype(np.float64)
+    expanded_inputs = [expanded_close]
+
+    simd_options = [
+        [1.0, 2.5, 0.1],  # Option set 1
+        [2.0, 5.0, 0.2],  # Option set 2 (Original)
+        [3.0, 7.5, 0.30000000000000004],  # Option set 3
+        [4.0, 10.0, 0.4],  # Option set 4
+    ]
+
+    print(f"Processing {len(simd_options)} option sets simultaneously using SIMD...")
+    for i, opt in enumerate(simd_options):
+        print(f"Option set {i + 1}: {opt}")
+    print()
+
+    try:
+        # Calculate VIDYA for all option sets using SIMD
+        simd_opt_outputs, simd_opt_states = tulip_rs.indicators.vidya.simd_by_options(
+            expanded_inputs, simd_options, optional_outputs
+        )
+
+        print("SIMD Results:")
+        for i, (output, state) in enumerate(zip(simd_opt_outputs, simd_opt_states)):
+            print(f"Option set {i + 1} VIDYA values (first 5): {output[0][:5]}")
+
+        print("\nVerification - calculating each option set individually:")
+        for i, opt in enumerate(simd_options):
+            individual_output, _ = tulip_rs.indicators.vidya.indicator(
+                expanded_inputs, opt, optional_outputs
+            )
+            print(
+                f"Option set {i + 1} individual (first 5): {individual_output[0][:5]}"
+            )
+
+            # Verify SIMD matches individual calculation
+            if np.allclose(
+                simd_opt_outputs[i][0], individual_output[0], rtol=1e-10, equal_nan=True
+            ):
+                print(f"✓ Option set {i + 1} SIMD matches individual calculation")
+            else:
+                print(
+                    f"✗ Option set {i + 1} SIMD does not match individual calculation"
+                )
+
+        print("\nSIMD by Options demonstration completed successfully!")
+
+    except Exception as e:
+        print(f"SIMD by Options error: {e}")
+
+
 if __name__ == "__main__":
     main()
