@@ -104,6 +104,7 @@ pub fn register_all_indicator_modules(
     Ok(())
 }
 
+
 // Get a count of all registered indicators
 /*pub fn get_indicator_count() -> usize {
     70 // Total number of indicators with auto-registration
