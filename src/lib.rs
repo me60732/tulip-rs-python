@@ -21,6 +21,7 @@ fn list_indicators() -> Vec<String> {
         "avgprice".to_string(),
         "bbands".to_string(),
         "bop".to_string(),
+        "candlestick".to_string(),
         "cci".to_string(),
         "cmo".to_string(),
         "cvi".to_string(),

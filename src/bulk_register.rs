@@ -33,6 +33,7 @@ pub fn register_all_indicator_modules(
     crate::indicators::avgprice::register_avgprice_module(indicators_module)?;
     crate::indicators::bbands::register_bbands_module(indicators_module)?;
     crate::indicators::bop::register_bop_module(indicators_module)?;
+    crate::indicators::candlestick::register_candlestick_module(indicators_module)?;
     crate::indicators::cci::register_cci_module(indicators_module)?;
     crate::indicators::cmo::register_cmo_module(indicators_module)?;
     crate::indicators::cvi::register_cvi_module(indicators_module)?;
@@ -103,7 +104,6 @@ pub fn register_all_indicator_modules(
 
     Ok(())
 }
-
 
 // Get a count of all registered indicators
 /*pub fn get_indicator_count() -> usize {
