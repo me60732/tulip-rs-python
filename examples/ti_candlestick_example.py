@@ -18,6 +18,8 @@ Each detected pattern dict contains:
 """
 
 try:
+    import numpy as np
+
     import tulip_rs
 except ImportError as e:
     print(f"Import error: {e}")
@@ -121,12 +123,18 @@ close_ = [
 
 options = [5.0, 1.0, 1.0]  # candle_period=5, trend_period=1, trend_signal_period=1
 
+# Convert to numpy arrays — required by the binding (zero-copy, consistent with all other indicators)
+open_np = np.array(open_, dtype=np.float64)
+high_np = np.array(high_, dtype=np.float64)
+low_np = np.array(low_, dtype=np.float64)
+close_np = np.array(close_, dtype=np.float64)
+
 # ---------------------------------------------------------------------------
 # Pre-flight info
 # ---------------------------------------------------------------------------
 min_bars = cdl.min_data(options)
-n_out = cdl.output_length(len(close_), options)
-print(f"Bars in: {len(close_)}  |  min_data: {min_bars}  |  output bars: {n_out}")
+n_out = cdl.output_length(len(close_np), options)
+print(f"Bars in: {len(close_np)}  |  min_data: {min_bars}  |  output bars: {n_out}")
 
 # ---------------------------------------------------------------------------
 # Run 1 — no forecast filter (all patterns matching current trend)
@@ -135,7 +143,7 @@ print("\n" + "=" * 60)
 print("Run 1: forecast_type = None  (all trend-matching patterns)")
 print("=" * 60)
 
-result, state = cdl.candlestick(open_, high_, low_, close_, options=options)
+result, state = cdl.candlestick(open_np, high_np, low_np, close_np, options=options)
 
 print(f"\nFull result ({len(result)} output bars):")
 for i, entry in enumerate(result):
@@ -162,10 +170,10 @@ print("Run 2: forecast_type = BullishReversal")
 print("=" * 60)
 
 result2, _ = cdl.candlestick(
-    open_,
-    high_,
-    low_,
-    close_,
+    open_np,
+    high_np,
+    low_np,
+    close_np,
     options=options,
     forecast_type=ForecastType.BullishReversal,
 )
@@ -193,10 +201,10 @@ print("\n" + "=" * 60)
 print("Streaming: one new bar appended to Run 1 state")
 print("=" * 60)
 
-new_open = [84.00]
-new_high = [84.50]
-new_low = [83.20]
-new_close = [83.50]
+new_open = np.array([84.00], dtype=np.float64)
+new_high = np.array([84.50], dtype=np.float64)
+new_low = np.array([83.20], dtype=np.float64)
+new_close = np.array([83.50], dtype=np.float64)
 
 new_result = state.batch_indicator(new_open, new_high, new_low, new_close)
 entry = new_result[0]

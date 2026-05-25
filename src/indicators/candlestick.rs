@@ -1,3 +1,4 @@
+use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use std::collections::HashMap;
@@ -144,14 +145,19 @@ impl CandlestickState {
     #[pyo3(signature = (open, high, low, close, forecast_type=None))]
     fn batch_indicator(
         &mut self,
-        open: Vec<f64>,
-        high: Vec<f64>,
-        low: Vec<f64>,
-        close: Vec<f64>,
+        open: PyReadonlyArray1<f64>,
+        high: PyReadonlyArray1<f64>,
+        low: PyReadonlyArray1<f64>,
+        close: PyReadonlyArray1<f64>,
         forecast_type: Option<ForecastType>,
     ) -> PyResult<Vec<Option<Vec<HashMap<String, String>>>>> {
         let ft = forecast_type.map(|f| f.inner);
-        let inputs: [&[f64]; 4] = [&open, &high, &low, &close];
+        let inputs: [&[f64]; 4] = [
+            open.as_slice()?,
+            high.as_slice()?,
+            low.as_slice()?,
+            close.as_slice()?,
+        ];
 
         match self.inner.batch_indicator(&inputs, ft) {
             Ok(output) => Ok(convert_output(output)),
@@ -223,16 +229,21 @@ impl CandlestickState {
 #[pyfunction]
 #[pyo3(signature = (open, high, low, close, options=None, forecast_type=None))]
 pub fn candlestick(
-    open: Vec<f64>,
-    high: Vec<f64>,
-    low: Vec<f64>,
-    close: Vec<f64>,
+    open: PyReadonlyArray1<f64>,
+    high: PyReadonlyArray1<f64>,
+    low: PyReadonlyArray1<f64>,
+    close: PyReadonlyArray1<f64>,
     options: Option<Vec<f64>>,
     forecast_type: Option<ForecastType>,
 ) -> PyResult<(Vec<Option<Vec<HashMap<String, String>>>>, CandlestickState)> {
     let opts = resolve_options(options)?;
     let ft = forecast_type.map(|f| f.inner);
-    let inputs: [&[f64]; 4] = [&open, &high, &low, &close];
+    let inputs: [&[f64]; 4] = [
+        open.as_slice()?,
+        high.as_slice()?,
+        low.as_slice()?,
+        close.as_slice()?,
+    ];
 
     match rust_cdl::indicator(&inputs, &opts, ft) {
         Ok((output, state)) => Ok((
