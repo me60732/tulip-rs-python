@@ -1,12 +1,12 @@
 [package]
 name = "tulip_rs_python"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 description = "Python bindings for TulipRS - Technical Analysis Library"
 license = "MIT"
-authors = ["Your Name <me60732@gmail.com>"]
-repository = "https://github.com/me60732/tulip_rs_python"
-homepage = "https://github.com/me60732/tulip_rs_python"
+authors = ["Mark Ellis <me60732@gmail.com>"]
+repository = "https://github.com/me60732/tulip-rs-python"
+homepage = "https://github.com/me60732/tulip_rs"
 documentation = "https://docs.rs/tulip_rs_python"
 
 [lib]

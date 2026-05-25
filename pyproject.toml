@@ -31,10 +31,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/me60732/tulip_rs_python"
-Repository = "https://github.com/me60732/tulip_rs_python"
+Homepage = "https://github.com/me60732/tulip-rs-python"
+Repository = "https://github.com/me60732/tulip-rs-python"
 Documentation = "https://tulip-rs-python.readthedocs.io"
-Issues = "https://github.com/me60732/tulip_rs_python/issues"
+Issues = "https://github.com/me60732/tulip-rs-python/issues"
 
 [project.optional-dependencies]
 dev = [
