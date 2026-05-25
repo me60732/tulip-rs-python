@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "tulip-rs"
-dynamic = ["version"]
+version = "0.1.2.2"
 description = "Python bindings for TulipRS - Technical Analysis Library with 100+ indicators and candlestick patterns"
 authors = [{name = "Your Name", email = "your.email@example.com"}]
 license = {text = "MIT"}
