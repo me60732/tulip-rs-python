@@ -221,7 +221,7 @@ def main():
     simd_options = [
         [0.1, 1.0],  # Option set 1
         [0.2, 2.0],  # Option set 2 (Original)
-        [0.30000000000000004, 3.0],  # Option set 3
+        [0.3, 3.0],  # Option set 3
         [0.4, 4.0],  # Option set 4
     ]
 

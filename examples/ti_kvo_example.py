@@ -285,9 +285,9 @@ def main():
     expanded_inputs = [expanded_high, expanded_low, expanded_close, expanded_volume]
 
     simd_options = [
-        [1.0, 2.5],  # Option set 1
+        [1.0, 3.0],  # Option set 1
         [2.0, 5.0],  # Option set 2 (Original)
-        [3.0, 7.5],  # Option set 3
+        [3.0, 7.0],  # Option set 3
         [4.0, 10.0],  # Option set 4
     ]
 

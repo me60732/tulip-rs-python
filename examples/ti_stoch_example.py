@@ -254,9 +254,9 @@ def main():
     expanded_inputs = [expanded_high, expanded_low, expanded_close]
 
     simd_options = [
-        [2.5, 1.5, 1.5],  # Option set 1
+        [3.0, 2.0, 2.0],  # Option set 1
         [5.0, 3.0, 3.0],  # Option set 2 (Original)
-        [7.5, 4.5, 4.5],  # Option set 3
+        [7.0, 5.0, 5.0],  # Option set 3
         [10.0, 6.0, 6.0],  # Option set 4
     ]
 
