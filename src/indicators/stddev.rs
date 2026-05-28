@@ -131,16 +131,7 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
 
 #[pyfunction]
 pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != rust_stddev::OPTIONS_WIDTH {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected {} options, got {}",
-            rust_stddev::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-
-    let options_array: [f64; rust_stddev::OPTIONS_WIDTH] = [options[0]];
-    Ok(rust_stddev::min_data_accuracy(&options_array, decimals))
+    Ok(rust_stddev::min_data_accuracy(&options, decimals))
 }
 
 #[pyfunction]
