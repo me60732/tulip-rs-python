@@ -1,4 +1,3 @@
-use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
@@ -116,9 +115,8 @@ pub fn indicator(
 }
 
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = rust_wcprice::info();
-    Ok(info_to_hashmap(info))
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    crate::utils::info_to_pydict(py, rust_wcprice::INFO)
 }
 
 #[pyfunction]

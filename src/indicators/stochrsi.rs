@@ -3,7 +3,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use std::collections::HashMap;
 
-use crate::utils::info_to_hashmap;
 
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::stochrsi as rust_stochrsi;
@@ -133,9 +132,8 @@ pub fn indicator(
 
 /// Get STOCHRSI indicator information
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = rust_stochrsi::info();
-    Ok(info_to_hashmap(info))
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    crate::utils::info_to_pydict(py, rust_stochrsi::INFO)
 }
 
 /// Calculate Stochastic RSI for multiple assets using SIMD operations

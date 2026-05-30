@@ -66,7 +66,7 @@ def main():
     ################################################### Calculating the Full MD Line with Optional Outputs
     # Full calculation - request ALL optional outputs
     optional_count = (
-        len(eval(info["optional_outputs"])) if info.get("optional_outputs") else 0
+        len(info["optional_outputs"]) if info.get("optional_outputs") else 0
     )
     optional_outputs = [True] * optional_count if optional_count > 0 else None
     outputs, _ = tulip_rs.indicators.md.indicator(inputs, options, optional_outputs)

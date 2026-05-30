@@ -6,7 +6,6 @@ use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::zlema as rust_zlema;
 
-use crate::utils::info_to_hashmap;
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
@@ -109,9 +108,8 @@ pub fn indicator(
 }
 
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = rust_zlema::info();
-    Ok(info_to_hashmap(info))
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    crate::utils::info_to_pydict(py, rust_zlema::INFO)
 }
 
 #[pyfunction]

@@ -75,7 +75,7 @@ def main():
 
     # Partial calculation - with optional outputs (matching Rust pattern)
     optional_count = (
-        len(eval(info["optional_outputs"])) if info.get("optional_outputs") else 0
+        len(info["optional_outputs"]) if info.get("optional_outputs") else 0
     )
     optional_outputs = [True] * optional_count if optional_count > 0 else None
     outputs2, state2 = tulip_rs.indicators.stddev.indicator(

@@ -118,7 +118,7 @@ def main():
 
     ################################################### Calculating the Full ADOSC Line with Optional Outputs
     # Full calculation - ALWAYS show ALL optional outputs for indicators that have them
-    optional_count = len(eval(info["optional_outputs"]))
+    optional_count = len(info["optional_outputs"])
     optional_outputs = [True] * optional_count if optional_count > 0 else None
     outputs, _ = tulip_rs.indicators.adosc.indicator(inputs, options, optional_outputs)
 

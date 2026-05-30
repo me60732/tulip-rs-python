@@ -3,7 +3,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use std::collections::HashMap;
 
-use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::tema as rust_tema;
 
@@ -159,9 +158,8 @@ pub fn indicator(
 
 /// Get TEMA info
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = rust_tema::info();
-    Ok(info_to_hashmap(info))
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    crate::utils::info_to_pydict(py, rust_tema::INFO)
 }
 
 /// Calculate Triple Exponential Moving Average for multiple assets using SIMD operations

@@ -304,15 +304,8 @@ pub fn output_length(data_len: usize, options: Option<Vec<f64>>) -> PyResult<usi
 ///     >>> print(i["full_name"])
 ///     Candle Stick Indicator
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    let i = rust_cdl::info();
-    let mut map = HashMap::new();
-    map.insert("name".to_string(), i.name.to_string());
-    map.insert("full_name".to_string(), i.full_name.to_string());
-    map.insert("inputs".to_string(), format!("{:?}", i.inputs));
-    map.insert("options".to_string(), format!("{:?}", i.options));
-    map.insert("outputs".to_string(), format!("{:?}", i.outputs));
-    Ok(map)
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    crate::utils::info_to_pydict(py, rust_cdl::INFO)
 }
 
 // ---------------------------------------------------------------------------

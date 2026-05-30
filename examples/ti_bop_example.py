@@ -118,7 +118,7 @@ def main():
     inputs = [open_vec, high_vec, low_vec, close_vec]
 
     # Get optional outputs count and request all
-    optional_count = len(eval(info["optional_outputs"]))
+    optional_count = len(info["optional_outputs"])
     optional_outputs = [True] * optional_count if optional_count > 0 else None
 
     outputs, _ = tulip_rs.indicators.bop.indicator(inputs, options, optional_outputs)

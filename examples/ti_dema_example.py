@@ -63,7 +63,7 @@ def main():
     inputs = [partial_close_vec]
 
     # Full calculation with optional outputs
-    optional_count = len(eval(info["optional_outputs"]))
+    optional_count = len(info["optional_outputs"])
     optional_outputs = [True] * optional_count if optional_count > 0 else None
 
     outputs, state = tulip_rs.indicators.dema.indicator(

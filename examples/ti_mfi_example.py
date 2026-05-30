@@ -117,7 +117,7 @@ def main():
     print()
 
     # Full calculation with all optional outputs
-    optional_count = len(eval(info["optional_outputs"]))
+    optional_count = len(info["optional_outputs"])
     optional_outputs = [True] * optional_count if optional_count > 0 else None
 
     outputs, _ = tulip_rs.indicators.mfi.indicator(inputs, options, optional_outputs)

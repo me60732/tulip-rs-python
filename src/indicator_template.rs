@@ -10,7 +10,6 @@
 //! 4. Adjust the input/output handling for your indicator's specific requirements
 //! 5. Add your register function call to lib.rs
 
-use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
@@ -147,15 +146,14 @@ pub fn indicator(
 }
 
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    // Replace with your actual info call:
-    // let info = rust_indicator::info();
-    // Ok(info_to_hashmap(info))
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    // Replace with your actual indicator constant:
+    // Ok(crate::utils::info_to_pydict(py, rust_indicator::INFO))
 
     // Placeholder for template:
-    let mut info = HashMap::new();
-    info.insert("name".to_string(), "Template Indicator".to_string());
-    Ok(info)
+    let dict = pyo3::types::PyDict::new(py);
+    dict.set_item("name", "Template Indicator")?;
+    Ok(dict)
 }
 
 #[pyfunction]

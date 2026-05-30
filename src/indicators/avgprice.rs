@@ -4,7 +4,6 @@ use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::avgprice as rust_avgprice;
 
@@ -120,9 +119,8 @@ pub fn indicator(
 }
 
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = rust_avgprice::info();
-    Ok(info_to_hashmap(info))
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    crate::utils::info_to_pydict(py, rust_avgprice::INFO)
 }
 
 #[pyfunction]

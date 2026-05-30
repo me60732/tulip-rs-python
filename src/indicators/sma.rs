@@ -4,7 +4,6 @@ use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::utils::info_to_hashmap;
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::sma as rust_sma;
 
@@ -161,9 +160,8 @@ pub fn indicator(
 
 /// Get SMA info
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = rust_sma::info();
-    Ok(info_to_hashmap(info))
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    crate::utils::info_to_pydict(py, rust_sma::INFO)
 }
 
 

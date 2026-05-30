@@ -1,4 +1,3 @@
-use crate::utils::info_to_hashmap;
 use numpy::PyReadonlyArray1;
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
@@ -427,9 +426,8 @@ pub fn register_mfi_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
 
 /// Get MFI indicator information
 #[pyfunction]
-pub fn info() -> PyResult<HashMap<String, String>> {
-    let info = rust_mfi::info();
-    Ok(info_to_hashmap(info))
+pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
+    crate::utils::info_to_pydict(py, rust_mfi::INFO)
 }
 
 /// Get minimum data length required for MFI calculation

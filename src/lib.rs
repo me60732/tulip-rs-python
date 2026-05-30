@@ -88,7 +88,7 @@ fn list_indicators() -> Vec<String> {
 #[pymodule]
 fn tulip_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Module metadata
-    m.add("__version__", "0.1.0")?;
+    m.add("__version__", "0.1.10")?;
     m.add("__author__", "TulipRS Contributors")?;
     m.add(
         "__description__",
