@@ -35,6 +35,7 @@ pub fn register_all_indicator_modules(
     crate::indicators::bop::register_bop_module(indicators_module)?;
     crate::indicators::candlestick::register_candlestick_module(indicators_module)?;
     crate::indicators::cci::register_cci_module(indicators_module)?;
+    crate::indicators::chandelierexit::register_chandelierexit_module(indicators_module)?;
     crate::indicators::cmo::register_cmo_module(indicators_module)?;
     crate::indicators::cvi::register_cvi_module(indicators_module)?;
     crate::indicators::dema::register_dema_module(indicators_module)?;
@@ -42,14 +43,15 @@ pub fn register_all_indicator_modules(
     crate::indicators::dm::register_dm_module(indicators_module)?;
     crate::indicators::dpo::register_dpo_module(indicators_module)?;
     crate::indicators::dx::register_dx_module(indicators_module)?;
-
     // E-L indicators
+    crate::indicators::ef::register_ef_module(indicators_module)?;
     crate::indicators::ema::register_ema_module(indicators_module)?;
     crate::indicators::emv::register_emv_module(indicators_module)?;
     crate::indicators::fisher::register_fisher_module(indicators_module)?;
     crate::indicators::fosc::register_fosc_module(indicators_module)?;
     crate::indicators::hma::register_hma_module(indicators_module)?;
     crate::indicators::kama::register_kama_module(indicators_module)?;
+    crate::indicators::keltnerchannel::register_keltnerchannel_module(indicators_module)?;
     crate::indicators::kvo::register_kvo_module(indicators_module)?;
     crate::indicators::linreg::register_linreg_module(indicators_module)?;
 
