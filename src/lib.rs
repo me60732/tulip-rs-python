@@ -31,6 +31,7 @@ fn list_indicators() -> Vec<String> {
         "donchianchannel".to_string(),
         "dpo".to_string(),
         "dx".to_string(),
+        "elderray".to_string(),
         "ema".to_string(),
         "emv".to_string(),
         "fisher".to_string(),

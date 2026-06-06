@@ -46,6 +46,7 @@ pub fn register_all_indicator_modules(
     crate::indicators::dx::register_dx_module(indicators_module)?;
     // E-L indicators
     crate::indicators::ef::register_ef_module(indicators_module)?;
+    crate::indicators::elderray::register_elderray_module(indicators_module)?;
     crate::indicators::ema::register_ema_module(indicators_module)?;
     crate::indicators::emv::register_emv_module(indicators_module)?;
     crate::indicators::fisher::register_fisher_module(indicators_module)?;
