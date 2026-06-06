@@ -41,6 +41,7 @@ pub fn register_all_indicator_modules(
     crate::indicators::dema::register_dema_module(indicators_module)?;
     crate::indicators::di::register_di_module(indicators_module)?;
     crate::indicators::dm::register_dm_module(indicators_module)?;
+    crate::indicators::donchianchannel::register_donchianchannel_module(indicators_module)?;
     crate::indicators::dpo::register_dpo_module(indicators_module)?;
     crate::indicators::dx::register_dx_module(indicators_module)?;
     // E-L indicators
@@ -80,6 +81,7 @@ pub fn register_all_indicator_modules(
     crate::indicators::rocr::register_rocr_module(indicators_module)?;
     crate::indicators::rsi::register_rsi_module(indicators_module)?;
     crate::indicators::sma::register_sma_module(indicators_module)?;
+    crate::indicators::smaenvelope::register_smaenvelope_module(indicators_module)?;
     crate::indicators::stddev::register_stddev_module(indicators_module)?;
     crate::indicators::stoch::register_stoch_module(indicators_module)?;
     crate::indicators::stochrsi::register_stochrsi_module(indicators_module)?;
