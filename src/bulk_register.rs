@@ -35,6 +35,7 @@ pub fn register_all_indicator_modules(
     crate::indicators::bop::register_bop_module(indicators_module)?;
     crate::indicators::candlestick::register_candlestick_module(indicators_module)?;
     crate::indicators::cci::register_cci_module(indicators_module)?;
+    crate::indicators::chaikinmf::register_chaikinmf_module(indicators_module)?;
     crate::indicators::chandelierexit::register_chandelierexit_module(indicators_module)?;
     crate::indicators::cmo::register_cmo_module(indicators_module)?;
     crate::indicators::cvi::register_cvi_module(indicators_module)?;
@@ -90,6 +91,7 @@ pub fn register_all_indicator_modules(
     // T-Z indicators
     crate::indicators::tema::register_tema_module(indicators_module)?;
     crate::indicators::tr::register_tr_module(indicators_module)?;
+    crate::indicators::trvi::register_trvi_module(indicators_module)?;
     crate::indicators::trima::register_trima_module(indicators_module)?;
     crate::indicators::trix::register_trix_module(indicators_module)?;
     crate::indicators::tsf::register_tsf_module(indicators_module)?;
@@ -98,6 +100,7 @@ pub fn register_all_indicator_modules(
     crate::indicators::vhf::register_vhf_module(indicators_module)?;
     crate::indicators::vidya::register_vidya_module(indicators_module)?;
     crate::indicators::volatility::register_volatility_module(indicators_module)?;
+    crate::indicators::vortex::register_vortex_module(indicators_module)?;
     crate::indicators::vosc::register_vosc_module(indicators_module)?;
     crate::indicators::vwma::register_vwma_module(indicators_module)?;
     crate::indicators::wad::register_wad_module(indicators_module)?;
