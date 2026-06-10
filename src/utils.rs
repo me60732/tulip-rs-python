@@ -57,8 +57,13 @@ pub fn info_to_pydict<'py>(py: Python<'py>, info: Info) -> PyResult<Bound<'py, P
 /// Convert a `Vec<Vec<f64>>` (one inner Vec per output channel) into a
 /// `Vec<Py<PyArray1<f64>>>` by moving each inner allocation directly into a
 /// numpy array header — zero copy, O(1) per channel.
+///
+/// Empty Vecs (produced by `init_optional_outputs_eff!` for unrequested
+/// optional outputs) are dropped here so the Python caller never receives
+/// shape-`(0,)` placeholder arrays.
 pub fn vecs_to_pyarrays(py: Python<'_>, vecs: Vec<Vec<f64>>) -> Vec<Py<PyArray1<f64>>> {
     vecs.into_iter()
+        .filter(|v| !v.is_empty())
         .map(|v| v.into_pyarray(py).unbind())
         .collect()
 }
