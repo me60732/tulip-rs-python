@@ -3,9 +3,9 @@ name: Publish Python package
 on:
   push:
     tags:
-      - 'v*'
-#  release:
-#    types: [published]
+      - "v*"
+  #  release:
+  #    types: [published]
   workflow_dispatch:
 
 env:
@@ -36,7 +36,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          manylinux: auto
+          manylinux: manylinux_2_28
           args: --release --out dist -i python${{ matrix.python-version }}
 
       - name: Upload wheels
