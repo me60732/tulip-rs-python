@@ -1,0 +1,2 @@
+[console_scripts]
+tulip-rs-bench = tulip_rs_bench.run_all:main

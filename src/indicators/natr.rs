@@ -1,11 +1,10 @@
-use numpy::PyReadonlyArray1;
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::natr as rust_natr;
-
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
@@ -18,9 +17,10 @@ impl NatrState {
     #[pyo3(signature = (inputs, optional_outputs=None))]
     fn batch_indicator(
         &mut self,
+        py: Python<'_>,
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
-    ) -> PyResult<Vec<Vec<f64>>> {
+    ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
         if inputs.len() != rust_natr::INPUTS_WIDTH {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
@@ -39,7 +39,7 @@ impl NatrState {
             .inner
             .batch_indicator(&input_arrays, optional_outputs.as_deref())
         {
-            Ok(result) => Ok(result),
+            Ok(result) => Ok(crate::utils::vecs_to_pyarrays(py, result)),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Indicator calculation failed: {:?}",
                 e
@@ -79,10 +79,11 @@ impl NatrState {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn indicator(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<f64>>, NatrState)> {
+) -> PyResult<(Vec<Py<PyArray1<f64>>>, NatrState)> {
     if inputs.len() != rust_natr::INPUTS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
@@ -108,7 +109,10 @@ pub fn indicator(
     let options_array: [f64; rust_natr::OPTIONS_WIDTH] = [options[0]];
 
     match rust_natr::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
-        Ok((result, state)) => Ok((result, NatrState { inner: state })),
+        Ok((result, state)) => Ok((
+            crate::utils::vecs_to_pyarrays(py, result),
+            NatrState { inner: state },
+        )),
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "Indicator calculation failed: {:?}",
             e
@@ -138,10 +142,11 @@ pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
 
 #[pyfunction]
 pub fn simd_by_assets(
+    py: Python<'_>,
     inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<NatrState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<NatrState>)> {
     if inputs.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No assets provided",
@@ -257,7 +262,10 @@ pub fn simd_by_assets(
                 .into_iter()
                 .map(|state| NatrState { inner: state })
                 .collect();
-            Ok((results, natr_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                natr_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by assets calculation failed: {:?}",
@@ -266,14 +274,14 @@ pub fn simd_by_assets(
     }
 }
 
-
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_options(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<Vec<f64>>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<NatrState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<NatrState>)> {
     if options.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No options provided",
@@ -311,8 +319,8 @@ pub fn simd_by_options(
 
     let input_arrays: [&[f64]; rust_natr::INPUTS_WIDTH] = [
         inputs[0].as_slice()?,
-            inputs[1].as_slice()?,
-            inputs[2].as_slice()?,
+        inputs[1].as_slice()?,
+        inputs[2].as_slice()?,
     ];
 
     let mut option_arrays: Vec<[f64; rust_natr::OPTIONS_WIDTH]> = Vec::with_capacity(num_options);
@@ -370,7 +378,10 @@ pub fn simd_by_options(
                 .into_iter()
                 .map(|state| NatrState { inner: state })
                 .collect();
-            Ok((results, natr_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                natr_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by options calculation failed: {:?}",

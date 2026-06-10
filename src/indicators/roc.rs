@@ -1,4 +1,4 @@
-use numpy::PyReadonlyArray1;
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
@@ -31,9 +31,10 @@ impl RocState {
     #[pyo3(signature = (inputs, optional_outputs=None))]
     fn batch_indicator(
         &mut self,
+        py: Python<'_>,
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
-    ) -> PyResult<Vec<Vec<f64>>> {
+    ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
         if inputs.len() != rust_roc::INPUTS_WIDTH {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "ROC requires {} input arrays, got {}",
@@ -50,7 +51,7 @@ impl RocState {
             &inputs_array,
             optional_outputs.as_deref(),
         ) {
-            Ok(outputs) => Ok(outputs),
+            Ok(outputs) => Ok(crate::utils::vecs_to_pyarrays(py, outputs)),
             Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "Calculation error: {}",
                 e
@@ -98,10 +99,11 @@ impl RocState {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn indicator(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<f64>>, RocState)> {
+) -> PyResult<(Vec<Py<PyArray1<f64>>>, RocState)> {
     if options.len() != rust_roc::OPTIONS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
@@ -123,7 +125,10 @@ pub fn indicator(
     let options_array: [f64; rust_roc::OPTIONS_WIDTH] = [options[0]];
 
     match rust_roc::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
-        Ok((outputs, state)) => Ok((outputs, RocState { inner: state })),
+        Ok((outputs, state)) => Ok((
+            crate::utils::vecs_to_pyarrays(py, outputs),
+            RocState { inner: state },
+        )),
         Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Calculation error: {}",
             e
@@ -137,14 +142,14 @@ pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
     crate::utils::info_to_pydict(py, rust_roc::INFO)
 }
 
-
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_options(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<Vec<f64>>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<RocState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<RocState>)> {
     if options.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No options provided",
@@ -180,9 +185,7 @@ pub fn simd_by_options(
         }
     }
 
-    let input_arrays: [&[f64]; rust_roc::INPUTS_WIDTH] = [
-        inputs[0].as_slice()?
-    ];
+    let input_arrays: [&[f64]; rust_roc::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     let mut option_arrays: Vec<[f64; rust_roc::OPTIONS_WIDTH]> = Vec::with_capacity(num_options);
 
@@ -239,7 +242,7 @@ pub fn simd_by_options(
                 .into_iter()
                 .map(|state| RocState { inner: state })
                 .collect();
-            Ok((results, roc_states))
+            Ok((crate::utils::simd_vecs_to_pyarrays(py, results), roc_states))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by options calculation failed: {:?}",
@@ -352,10 +355,11 @@ pub fn register_roc_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_assets(
+    py: Python<'_>,
     inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<RocState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<RocState>)> {
     if inputs.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No assets provided",
@@ -455,7 +459,7 @@ pub fn simd_by_assets(
                 .into_iter()
                 .map(|state| RocState { inner: state })
                 .collect();
-            Ok((results, roc_states))
+            Ok((crate::utils::simd_vecs_to_pyarrays(py, results), roc_states))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by assets calculation failed: {:?}",

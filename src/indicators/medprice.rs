@@ -1,4 +1,4 @@
-use numpy::PyReadonlyArray1;
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
@@ -17,9 +17,10 @@ impl MedpriceState {
     #[pyo3(signature = (inputs, optional_outputs=None))]
     fn batch_indicator(
         &mut self,
+        py: Python<'_>,
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
-    ) -> PyResult<Vec<Vec<f64>>> {
+    ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
         if inputs.len() != rust_medprice::INPUTS_WIDTH {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
@@ -35,7 +36,7 @@ impl MedpriceState {
             .inner
             .batch_indicator(&input_arrays, optional_outputs.as_deref())
         {
-            Ok(result) => Ok(result),
+            Ok(result) => Ok(crate::utils::vecs_to_pyarrays(py, result)),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Indicator calculation failed: {:?}",
                 e
@@ -75,10 +76,11 @@ impl MedpriceState {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn indicator(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<f64>>, MedpriceState)> {
+) -> PyResult<(Vec<Py<PyArray1<f64>>>, MedpriceState)> {
     if inputs.len() != rust_medprice::INPUTS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
@@ -101,7 +103,10 @@ pub fn indicator(
     let options_array: [f64; rust_medprice::OPTIONS_WIDTH] = [];
 
     match rust_medprice::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
-        Ok((result, state)) => Ok((result, MedpriceState { inner: state })),
+        Ok((result, state)) => Ok((
+            crate::utils::vecs_to_pyarrays(py, result),
+            MedpriceState { inner: state },
+        )),
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "Indicator calculation failed: {:?}",
             e
@@ -149,10 +154,11 @@ pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_assets(
+    py: Python<'_>,
     inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<MedpriceState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<MedpriceState>)> {
     if inputs.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No assets provided",
@@ -269,7 +275,10 @@ pub fn simd_by_assets(
                 .into_iter()
                 .map(|state| MedpriceState { inner: state })
                 .collect();
-            Ok((results, indicator_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                indicator_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by assets calculation failed: {:?}",

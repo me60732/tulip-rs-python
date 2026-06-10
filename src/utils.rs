@@ -1,3 +1,4 @@
+use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use tulip_rs::types::Info;
@@ -51,4 +52,25 @@ pub fn info_to_pydict<'py>(py: Python<'py>, info: Info) -> PyResult<Bound<'py, P
     dict.set_item("display_groups", groups_list)?;
 
     Ok(dict)
+}
+
+/// Convert a `Vec<Vec<f64>>` (one inner Vec per output channel) into a
+/// `Vec<Py<PyArray1<f64>>>` by moving each inner allocation directly into a
+/// numpy array header — zero copy, O(1) per channel.
+pub fn vecs_to_pyarrays(py: Python<'_>, vecs: Vec<Vec<f64>>) -> Vec<Py<PyArray1<f64>>> {
+    vecs.into_iter()
+        .map(|v| v.into_pyarray(py).unbind())
+        .collect()
+}
+
+/// Convert the outer Vec of a SIMD result (`Vec<Vec<Vec<f64>>>`, one entry per
+/// asset/option lane) into `Vec<Vec<Py<PyArray1<f64>>>>` using the same
+/// zero-copy move strategy.
+pub fn simd_vecs_to_pyarrays(
+    py: Python<'_>,
+    vecs: Vec<Vec<Vec<f64>>>,
+) -> Vec<Vec<Py<PyArray1<f64>>>> {
+    vecs.into_iter()
+        .map(|outer| vecs_to_pyarrays(py, outer))
+        .collect()
 }

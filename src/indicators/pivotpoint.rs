@@ -1,4 +1,4 @@
-use numpy::PyReadonlyArray1;
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
@@ -17,9 +17,10 @@ impl PivotpointState {
     #[pyo3(signature = (inputs, optional_outputs=None))]
     fn batch_indicator(
         &mut self,
+        py: Python<'_>,
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
-    ) -> PyResult<Vec<Vec<f64>>> {
+    ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
         if inputs.len() != rust_pivotpoint::INPUTS_WIDTH {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
@@ -38,7 +39,7 @@ impl PivotpointState {
             .inner
             .batch_indicator(&input_arrays, optional_outputs.as_deref())
         {
-            Ok(result) => Ok(result),
+            Ok(result) => Ok(crate::utils::vecs_to_pyarrays(py, result)),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Indicator calculation failed: {:?}",
                 e
@@ -78,10 +79,11 @@ impl PivotpointState {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn indicator(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<f64>>, PivotpointState)> {
+) -> PyResult<(Vec<Py<PyArray1<f64>>>, PivotpointState)> {
     if inputs.len() != rust_pivotpoint::INPUTS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
@@ -107,7 +109,10 @@ pub fn indicator(
     let options_array: [f64; rust_pivotpoint::OPTIONS_WIDTH] = [options[0]];
 
     match rust_pivotpoint::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
-        Ok((result, state)) => Ok((result, PivotpointState { inner: state })),
+        Ok((result, state)) => Ok((
+            crate::utils::vecs_to_pyarrays(py, result),
+            PivotpointState { inner: state },
+        )),
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "Indicator calculation failed: {:?}",
             e

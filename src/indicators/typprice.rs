@@ -1,11 +1,10 @@
-use numpy::PyReadonlyArray1;
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::typprice as rust_typprice;
-
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
@@ -18,9 +17,10 @@ impl TyppriceState {
     #[pyo3(signature = (inputs, optional_outputs=None))]
     fn batch_indicator(
         &mut self,
+        py: Python<'_>,
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
-    ) -> PyResult<Vec<Vec<f64>>> {
+    ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
         if inputs.len() != rust_typprice::INPUTS_WIDTH {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
@@ -39,7 +39,7 @@ impl TyppriceState {
             .inner
             .batch_indicator(&input_arrays, optional_outputs.as_deref())
         {
-            Ok(result) => Ok(result),
+            Ok(result) => Ok(crate::utils::vecs_to_pyarrays(py, result)),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Indicator calculation failed: {:?}",
                 e
@@ -79,10 +79,11 @@ impl TyppriceState {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn indicator(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<f64>>, TyppriceState)> {
+) -> PyResult<(Vec<Py<PyArray1<f64>>>, TyppriceState)> {
     if inputs.len() != rust_typprice::INPUTS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
@@ -107,7 +108,10 @@ pub fn indicator(
     let options_array: [f64; rust_typprice::OPTIONS_WIDTH] = [];
 
     match rust_typprice::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
-        Ok((result, state)) => Ok((result, TyppriceState { inner: state })),
+        Ok((result, state)) => Ok((
+            crate::utils::vecs_to_pyarrays(py, result),
+            TyppriceState { inner: state },
+        )),
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "Indicator calculation failed: {:?}",
             e
@@ -199,10 +203,11 @@ pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_assets(
+    py: Python<'_>,
     inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<TyppriceState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<TyppriceState>)> {
     if inputs.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No assets provided",
@@ -253,7 +258,8 @@ pub fn simd_by_assets(
     }
 
     // Create array of references for the by_assets function
-    let input_refs: Vec<&[&[f64]; rust_typprice::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+    let input_refs: Vec<&[&[f64]; rust_typprice::INPUTS_WIDTH]> =
+        asset_input_arrays.iter().collect();
 
     let options_array: [f64; rust_typprice::OPTIONS_WIDTH] = [];
 
@@ -304,7 +310,10 @@ pub fn simd_by_assets(
                 .into_iter()
                 .map(|state| TyppriceState { inner: state })
                 .collect();
-            Ok((results, typprice_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                typprice_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by assets calculation failed: {:?}",

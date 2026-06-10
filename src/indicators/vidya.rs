@@ -1,4 +1,4 @@
-use numpy::PyReadonlyArray1;
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
@@ -17,9 +17,10 @@ impl VidyaState {
     #[pyo3(signature = (inputs, optional_outputs=None))]
     fn batch_indicator(
         &mut self,
+        py: Python<'_>,
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
-    ) -> PyResult<Vec<Vec<f64>>> {
+    ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
         if inputs.len() != rust_vidya::INPUTS_WIDTH {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
@@ -34,7 +35,7 @@ impl VidyaState {
             .inner
             .batch_indicator(&input_arrays, optional_outputs.as_deref())
         {
-            Ok(result) => Ok(result),
+            Ok(result) => Ok(crate::utils::vecs_to_pyarrays(py, result)),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Indicator calculation failed: {:?}",
                 e
@@ -74,10 +75,11 @@ impl VidyaState {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn indicator(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<f64>>, VidyaState)> {
+) -> PyResult<(Vec<Py<PyArray1<f64>>>, VidyaState)> {
     if inputs.len() != rust_vidya::INPUTS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
@@ -98,7 +100,10 @@ pub fn indicator(
     let options_array: [f64; rust_vidya::OPTIONS_WIDTH] = [options[0], options[1], options[2]];
 
     match rust_vidya::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
-        Ok((result, state)) => Ok((result, VidyaState { inner: state })),
+        Ok((result, state)) => Ok((
+            crate::utils::vecs_to_pyarrays(py, result),
+            VidyaState { inner: state },
+        )),
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "Indicator calculation failed: {:?}",
             e
@@ -179,10 +184,11 @@ pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_assets(
+    py: Python<'_>,
     inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<VidyaState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<VidyaState>)> {
     if inputs.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No assets provided",
@@ -282,7 +288,10 @@ pub fn simd_by_assets(
                 .into_iter()
                 .map(|state| VidyaState { inner: state })
                 .collect();
-            Ok((results, vidya_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                vidya_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by assets calculation failed: {:?}",
@@ -291,14 +300,14 @@ pub fn simd_by_assets(
     }
 }
 
-
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_options(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<Vec<f64>>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<VidyaState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<VidyaState>)> {
     if options.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No options provided",
@@ -334,9 +343,7 @@ pub fn simd_by_options(
         }
     }
 
-    let input_arrays: [&[f64]; rust_vidya::INPUTS_WIDTH] = [
-        inputs[0].as_slice()?
-    ];
+    let input_arrays: [&[f64]; rust_vidya::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
     let mut option_arrays: Vec<[f64; rust_vidya::OPTIONS_WIDTH]> = Vec::with_capacity(num_options);
 
@@ -393,7 +400,10 @@ pub fn simd_by_options(
                 .into_iter()
                 .map(|state| VidyaState { inner: state })
                 .collect();
-            Ok((results, vidya_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                vidya_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by options calculation failed: {:?}",

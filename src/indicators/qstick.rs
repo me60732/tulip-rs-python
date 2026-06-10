@@ -1,4 +1,4 @@
-use numpy::PyReadonlyArray1;
+use numpy::{PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
@@ -17,9 +17,10 @@ impl QstickState {
     #[pyo3(signature = (inputs, optional_outputs=None))]
     fn batch_indicator(
         &mut self,
+        py: Python<'_>,
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
-    ) -> PyResult<Vec<Vec<f64>>> {
+    ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
         if inputs.len() != rust_qstick::INPUTS_WIDTH {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
@@ -35,7 +36,7 @@ impl QstickState {
             .inner
             .batch_indicator(&input_arrays, optional_outputs.as_deref())
         {
-            Ok(result) => Ok(result),
+            Ok(result) => Ok(crate::utils::vecs_to_pyarrays(py, result)),
             Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
                 "Indicator calculation failed: {:?}",
                 e
@@ -75,10 +76,11 @@ impl QstickState {
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn indicator(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<f64>>, QstickState)> {
+) -> PyResult<(Vec<Py<PyArray1<f64>>>, QstickState)> {
     if inputs.len() != rust_qstick::INPUTS_WIDTH {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
@@ -101,7 +103,10 @@ pub fn indicator(
     let options_array: [f64; rust_qstick::OPTIONS_WIDTH] = [options[0]];
 
     match rust_qstick::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
-        Ok((result, state)) => Ok((result, QstickState { inner: state })),
+        Ok((result, state)) => Ok((
+            crate::utils::vecs_to_pyarrays(py, result),
+            QstickState { inner: state },
+        )),
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "Indicator calculation failed: {:?}",
             e
@@ -129,14 +134,14 @@ pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_qstick::output_length(data_len, &options))
 }
 
-
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_options(
+    py: Python<'_>,
     inputs: Vec<PyReadonlyArray1<f64>>,
     options: Vec<Vec<f64>>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<QstickState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<QstickState>)> {
     if options.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No options provided",
@@ -172,9 +177,8 @@ pub fn simd_by_options(
         }
     }
 
-    let input_arrays: [&[f64]; rust_qstick::INPUTS_WIDTH] = [
-        inputs[0].as_slice()?, inputs[1].as_slice()?
-    ];
+    let input_arrays: [&[f64]; rust_qstick::INPUTS_WIDTH] =
+        [inputs[0].as_slice()?, inputs[1].as_slice()?];
 
     let mut option_arrays: Vec<[f64; rust_qstick::OPTIONS_WIDTH]> = Vec::with_capacity(num_options);
 
@@ -231,7 +235,10 @@ pub fn simd_by_options(
                 .into_iter()
                 .map(|state| QstickState { inner: state })
                 .collect();
-            Ok((results, qstick_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                qstick_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by options calculation failed: {:?}",
@@ -352,10 +359,11 @@ pub fn register_qstick_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_assets(
+    py: Python<'_>,
     inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
-) -> PyResult<(Vec<Vec<Vec<f64>>>, Vec<QstickState>)> {
+) -> PyResult<(Vec<Vec<Py<PyArray1<f64>>>>, Vec<QstickState>)> {
     if inputs.is_empty() {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
             "No assets provided",
@@ -456,7 +464,10 @@ pub fn simd_by_assets(
                 .into_iter()
                 .map(|state| QstickState { inner: state })
                 .collect();
-            Ok((results, qstick_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                qstick_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by assets calculation failed: {:?}",

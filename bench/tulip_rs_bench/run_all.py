@@ -1,0 +1,94 @@
+"""
+Entry point for tulip-rs-bench.
+
+Installed as the `tulip-rs-bench` console script via pyproject.toml.
+
+Usage:
+    tulip-rs-bench                   # all indicators, stdout only
+    tulip-rs-bench ema rsi macd      # specific indicators
+    BENCHMARK_LOG_TO_DB=1 tulip-rs-bench   # write to indicator_benchmark DB
+    python -m tulip_rs_bench.run_all       # equivalent alternative
+"""
+
+from __future__ import annotations
+
+import importlib
+import os
+import sys
+import time
+
+from tulip_rs_bench.common import (
+    LOG_TO_DB,
+    BenchmarkDef,
+    BenchmarkLogger,
+    load_stock_data,
+    run_benchmark,
+)
+
+_INDICATORS_PKG = "tulip_rs_bench.indicators"
+_INDICATORS_DIR = os.path.join(os.path.dirname(__file__), "indicators")
+
+
+def _discover() -> list[tuple[str, BenchmarkDef]]:
+    """Return (module_stem, BENCHMARK) for every bench_*.py in indicators/."""
+    found = []
+    for fname in sorted(os.listdir(_INDICATORS_DIR)):
+        if not (fname.startswith("bench_") and fname.endswith(".py")):
+            continue
+        mod_name = f"{_INDICATORS_PKG}.{fname[:-3]}"
+        mod = importlib.import_module(mod_name)
+        if not hasattr(mod, "BENCHMARK"):
+            print(
+                f"[warn] {fname} has no BENCHMARK variable — skipping", file=sys.stderr
+            )
+            continue
+        found.append((fname[:-3], mod.BENCHMARK))
+    return found
+
+
+def main(filter_names: list[str] | None = None) -> None:
+    # When invoked as a console script the entry point calls main() with no
+    # arguments, so fall back to reading sys.argv directly.
+    if filter_names is None and len(sys.argv) > 1:
+        filter_names = sys.argv[1:]
+    print("=" * 64)
+    print("  tulip-rs Python Benchmark Suite")
+    print("=" * 64)
+
+    print("\n[1/3] Loading stock data …")
+    stocks = load_stock_data()
+    if not stocks:
+        print("[error] No stock data — is the stocks DB running?", file=sys.stderr)
+        sys.exit(1)
+
+    logger: BenchmarkLogger | None = None
+    if LOG_TO_DB:
+        print("\n[2/3] Connecting to benchmark DB …")
+        logger = BenchmarkLogger()
+        logger.start_run()
+    else:
+        print("\n[2/3] DB logging disabled (BENCHMARK_LOG_TO_DB=0) — stdout only")
+
+    print("\n[3/3] Running benchmarks …")
+    all_benchmarks = _discover()
+    if filter_names:
+        all_benchmarks = [(n, b) for n, b in all_benchmarks if b.name in filter_names]
+        if not all_benchmarks:
+            print(f"[error] No benchmarks matched: {filter_names}", file=sys.stderr)
+            sys.exit(1)
+
+    t_start = time.perf_counter()
+    for _stem, defn in all_benchmarks:
+        run_benchmark(defn, stocks, logger)
+
+    elapsed = time.perf_counter() - t_start
+    print(f"\n{'=' * 64}")
+    print(f"  Finished {len(all_benchmarks)} indicator(s) in {elapsed:.1f}s")
+    if logger:
+        print(f"  Results written to DB (run_id={logger.run_id})")
+        logger.close()
+    print("=" * 64)
+
+
+if __name__ == "__main__":
+    main(filter_names=sys.argv[1:] or None)
