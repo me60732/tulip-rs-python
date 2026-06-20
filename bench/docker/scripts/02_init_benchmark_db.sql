@@ -185,7 +185,21 @@ OVERRIDING SYSTEM VALUE VALUES
     (166,  'elderray',              'Elder-Ray',                                                                  3, 2, true, 'trend'),
     (167,  'vortex',                'Vortex',                                                                     3, 2, true, 'trend'),
     (168,  'trvi',                  'True Range Volatility Indicator',                                            3, 1, true, 'trend'),
-    (169,  'chaikinmf',             'Chaikin Money Flow',                                                         4, 1, true, 'volume');
+    (169,  'chaikinmf',             'Chaikin Money Flow',                                                         4, 1, true, 'volume'),
+    (170,  'vwap',                  'Volume Weighted Average Price',                                              4, 1, false, 'trend'),
+    (171,  'supertrend',            'Super Trend',                                                                3, 1, true, 'trend'),
+    (172,  'ichimoku',              'Ichimoku',                                                                   3, 5, true, 'trend'),
+    (173,  'supersmoother',         'Ehlers Super Smootherer',                                                    1, 1, true, 'trend'),
+    (174,  'highpass',              'Ehlers High Pass Filter',                                                    1, 1, true, 'trend'),
+    (175,  'roofingfilter',         'Ehlers Roofing Filter',                                                      1, 1, true, 'trend'),
+    (176,  'hilberttransform',      'Ehlers Hilbert Transform',                                                   1, 2, true, 'trend'),
+    (177,  'homodynediscriminator', 'homodynediscriminator',                                                      1, 1, false, 'trend'),
+    (178,  'mama',                  'MESA Adaptive Moving Average',                                               1, 2, true, 'trend'),
+    (179,  'instantaneoustrendline','Ehlers Instantaneous Trendline',                                             1, 1, false, 'trend'),
+    (180,  'adaptivemsw',           'Adaptive Mesa Sine Wave',                                                    1, 2, false, 'cycle'),
+    (181,  'trendmode',             'Ehlers TrendMode',                                                           1, 2, true, 'trend'),
+    (182,   'cybercycle',           'Ehlers Cyber Cycle',                                                         1, 2, true,   'cycle'),
+    (183,   'ccfisher',             'Cyber Cycle Fisher',                                                         1, 2, true, 'cycle');
 
 -- Reset sequence to max id + 1
 SELECT setval('indicators_id_seq', (SELECT MAX(id) FROM indicators));

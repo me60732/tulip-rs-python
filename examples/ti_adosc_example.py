@@ -112,8 +112,6 @@ def main():
     print(f"Minimum data required: {min_data}")
 
     # Show minimum data for accuracy
-    min_data_accuracy = tulip_rs.indicators.adosc.min_data_accuracy(options, 6)
-    print(f"Minimum data for accuracy (6 decimals): {min_data_accuracy}")
     print()
 
     ################################################### Calculating the Full ADOSC Line with Optional Outputs

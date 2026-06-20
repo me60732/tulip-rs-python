@@ -22,6 +22,7 @@ pub fn register_all_indicator_modules(
 ) -> PyResult<()> {
     // A-D indicators
     crate::indicators::ad::register_ad_module(indicators_module)?;
+    crate::indicators::adaptivemsw::register_adaptivemsw_module(indicators_module)?;
     crate::indicators::adosc::register_adosc_module(indicators_module)?;
     crate::indicators::adx::register_adx_module(indicators_module)?;
     crate::indicators::adxr::register_adxr_module(indicators_module)?;
@@ -34,11 +35,13 @@ pub fn register_all_indicator_modules(
     crate::indicators::bbands::register_bbands_module(indicators_module)?;
     crate::indicators::bop::register_bop_module(indicators_module)?;
     crate::indicators::candlestick::register_candlestick_module(indicators_module)?;
+    crate::indicators::ccfisher::register_ccfisher_module(indicators_module)?;
     crate::indicators::cci::register_cci_module(indicators_module)?;
     crate::indicators::chaikinmf::register_chaikinmf_module(indicators_module)?;
     crate::indicators::chandelierexit::register_chandelierexit_module(indicators_module)?;
     crate::indicators::cmo::register_cmo_module(indicators_module)?;
     crate::indicators::cvi::register_cvi_module(indicators_module)?;
+    crate::indicators::cybercycle::register_cybercycle_module(indicators_module)?;
     crate::indicators::dema::register_dema_module(indicators_module)?;
     crate::indicators::di::register_di_module(indicators_module)?;
     crate::indicators::dm::register_dm_module(indicators_module)?;
@@ -52,7 +55,16 @@ pub fn register_all_indicator_modules(
     crate::indicators::emv::register_emv_module(indicators_module)?;
     crate::indicators::fisher::register_fisher_module(indicators_module)?;
     crate::indicators::fosc::register_fosc_module(indicators_module)?;
+    crate::indicators::highpass::register_highpass_module(indicators_module)?;
+    crate::indicators::hilberttransform::register_hilberttransform_module(indicators_module)?;
     crate::indicators::hma::register_hma_module(indicators_module)?;
+    crate::indicators::homodynediscriminator::register_homodynediscriminator_module(
+        indicators_module,
+    )?;
+    crate::indicators::ichimoku::register_ichimoku_module(indicators_module)?;
+    crate::indicators::instantaneoustrendline::register_instantaneoustrendline_module(
+        indicators_module,
+    )?;
     crate::indicators::kama::register_kama_module(indicators_module)?;
     crate::indicators::keltnerchannel::register_keltnerchannel_module(indicators_module)?;
     crate::indicators::kvo::register_kvo_module(indicators_module)?;
@@ -60,6 +72,7 @@ pub fn register_all_indicator_modules(
 
     // M-P indicators
     crate::indicators::macd::register_macd_module(indicators_module)?;
+    crate::indicators::mama::register_mama_module(indicators_module)?;
     crate::indicators::marketfi::register_marketfi_module(indicators_module)?;
     crate::indicators::mass::register_mass_module(indicators_module)?;
     crate::indicators::max::register_max_module(indicators_module)?;
@@ -81,16 +94,20 @@ pub fn register_all_indicator_modules(
     crate::indicators::qstick::register_qstick_module(indicators_module)?;
     crate::indicators::roc::register_roc_module(indicators_module)?;
     crate::indicators::rocr::register_rocr_module(indicators_module)?;
+    crate::indicators::roofingfilter::register_roofingfilter_module(indicators_module)?;
     crate::indicators::rsi::register_rsi_module(indicators_module)?;
     crate::indicators::sma::register_sma_module(indicators_module)?;
     crate::indicators::smaenvelope::register_smaenvelope_module(indicators_module)?;
     crate::indicators::stddev::register_stddev_module(indicators_module)?;
     crate::indicators::stoch::register_stoch_module(indicators_module)?;
     crate::indicators::stochrsi::register_stochrsi_module(indicators_module)?;
+    crate::indicators::supersmoother::register_supersmoother_module(indicators_module)?;
+    crate::indicators::supertrend::register_supertrend_module(indicators_module)?;
 
     // T-Z indicators
     crate::indicators::tema::register_tema_module(indicators_module)?;
     crate::indicators::tr::register_tr_module(indicators_module)?;
+    crate::indicators::trendmode::register_trendmode_module(indicators_module)?;
     crate::indicators::trvi::register_trvi_module(indicators_module)?;
     crate::indicators::trima::register_trima_module(indicators_module)?;
     crate::indicators::trix::register_trix_module(indicators_module)?;
@@ -102,6 +119,7 @@ pub fn register_all_indicator_modules(
     crate::indicators::volatility::register_volatility_module(indicators_module)?;
     crate::indicators::vortex::register_vortex_module(indicators_module)?;
     crate::indicators::vosc::register_vosc_module(indicators_module)?;
+    crate::indicators::vwap::register_vwap_module(indicators_module)?;
     crate::indicators::vwma::register_vwma_module(indicators_module)?;
     crate::indicators::wad::register_wad_module(indicators_module)?;
     crate::indicators::wcprice::register_wcprice_module(indicators_module)?;

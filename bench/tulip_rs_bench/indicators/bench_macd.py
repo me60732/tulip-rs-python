@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, List
 
 import ta.trend
+import tulipy
 
 import tulip_rs
 from tulip_rs_bench.common import (
@@ -13,6 +14,8 @@ from tulip_rs_bench.common import (
 )
 
 
+import pandas as pd
+import pandas_ta as pta
 def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
     return tulip_rs.indicators.macd.indicator([data.close], options)
 
@@ -26,6 +29,18 @@ def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
     ).macd()
 
 
+def _tulipy(data: OhlcvArrays, options: List[float]) -> Any:
+    return tulipy.macd(
+        data.close,
+        short_period=int(options[0]),
+        long_period=int(options[1]),
+        signal_period=int(options[2]),
+    )
+
+
+def _pta(data: OhlcvArrays, options: List[float]) -> Any:
+    return pta.macd(pd.Series(data.close), fast=int(options[0]), slow=int(options[1]), signal=int(options[2]))
+
 BENCHMARK = BenchmarkDef(
     name="macd",
     options_list=[
@@ -36,4 +51,5 @@ BENCHMARK = BenchmarkDef(
     ],
     tulip_fn=_tulip,
     ref_fn=_ref,
+    extra_refs={"tulipy": _tulipy, "pandas_ta": _pta},
 )

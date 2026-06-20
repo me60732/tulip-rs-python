@@ -158,27 +158,9 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_willr::min_data(&options))
 }
 
-/// Get minimum data length required for WILLR calculation with accuracy
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != rust_willr::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "WILLR requires exactly 1 option: period",
-        ));
-    }
-    Ok(rust_willr::min_data_accuracy(&options, decimals))
-}
 
-/// Get output length for WILLR calculation
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != rust_willr::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "WILLR requires exactly 1 option: period",
-        ));
-    }
-    Ok(rust_willr::output_length(data_len, &options))
-}
+
+
 
 /// Calculate Williams %R for multiple assets using SIMD operations
 ///
@@ -483,8 +465,7 @@ pub fn register_willr_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3:
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 

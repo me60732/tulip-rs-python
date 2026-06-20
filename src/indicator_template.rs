@@ -165,23 +165,7 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(1)
 }
 
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    // Replace with your actual min_data_accuracy call:
-    // Ok(rust_indicator::min_data_accuracy(&options, decimals))
 
-    // Placeholder for template:
-    Ok(1)
-}
-
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    // Replace with your actual output_length call:
-    // Ok(rust_indicator::output_length(data_len, &options))
-
-    // Placeholder for template:
-    Ok(data_len)
-}
 
 // OPTION 1: Manual registration (current working approach)
 // Use this approach for now until macros are fully implemented
@@ -191,8 +175,8 @@ pub fn register_template_module(parent_module: &pyo3::Bound<'_, PyModule>) -> py
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(&submodule)?)?;
+    submodule.add_function(pyo3::wrap_pyfunction!(&submodule)?)?;
     submodule.add_class::<TemplateState>()?;
 
     parent_module.add_submodule(&submodule)?;
@@ -217,7 +201,7 @@ pub fn register_template_module(parent_module: &pyo3::Bound<'_, PyModule>) -> py
 // Or for full control:
 // register_indicator_module! {
 //     name: template,
-//     functions: [indicator, info, min_data, min_data_accuracy, output_length],
+//     functions: [indicator, info, min_data],
 //     classes: [TemplateState]
 // }
 

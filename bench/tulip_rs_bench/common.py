@@ -36,8 +36,13 @@ BENCH_DB_URL = os.getenv(
     "postgresql://tulip:tulip@localhost:5432/indicator_benchmark",
 )
 LOG_TO_DB = os.getenv("BENCHMARK_LOG_TO_DB", "0") == "1"
-BENCH_NUMBER = int(os.getenv("BENCH_NUMBER", "10"))
-BENCH_REPEAT = int(os.getenv("BENCH_REPEAT", "30"))
+BENCH_NUMBER = int(
+    os.getenv("BENCH_NUMBER", "500")
+)  # calls per sample; 1000 × 30 repeats = 30,000 total (Rust uses 300,000)
+BENCH_REPEAT = int(os.getenv("BENCH_REPEAT", "10"))
+BENCH_WARMUP = int(
+    os.getenv("BENCH_WARMUP", "500")
+)  # warm-up iterations before timing (mirrors Criterion)
 DATA_LIMIT = 6705  # same row-count as Rust benchmarks
 
 STOCKS = [
@@ -114,6 +119,7 @@ class BenchmarkDef:
     options_list: List[List[float]]
     tulip_fn: Callable[[OhlcvArrays, List[float]], Any]
     ref_fn: Optional[Callable[[PdOhlcvArrays, List[float]], Any]]
+    extra_refs: Optional[Dict[str, Callable[[OhlcvArrays, List[float]], Any]]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -125,13 +131,18 @@ def time_fn(
     fn: Callable[[], Any],
     number: int = BENCH_NUMBER,
     repeat: int = BENCH_REPEAT,
+    warmup: int = BENCH_WARMUP,
 ) -> TimingResult:
     """
     Time a zero-argument callable and return nanosecond statistics.
 
+    warmup = calls before timing starts, to hot the CPU caches and allocator
+             free-lists (mirrors Criterion's warm-up phase)
     number = back-to-back calls per sample  (amortises per-call overhead)
     repeat = independent samples             (source for mean/min/max/stddev)
     """
+    for _ in range(warmup):
+        fn()
     timer = timeit.Timer(fn)
     raw = timer.repeat(repeat=repeat, number=number)
     # raw[i] = total seconds for `number` calls → ns per call
@@ -343,6 +354,26 @@ def run_benchmark(
                         "ta",
                         options,
                         ref_result,
+                        np_data.symbol,
+                        np_data.length,
+                    )
+
+            for ref_name, ref_fn in (defn.extra_refs or {}).items():
+                extra_result = time_fn(
+                    lambda _d=np_data, _o=options, _f=ref_fn: _f(_d, _o)
+                )
+                ratio = (
+                    extra_result.mean_ns / tulip_result.mean_ns
+                    if tulip_result.mean_ns
+                    else float("inf")
+                )
+                _print_row(ref_name, np_data.symbol, options, extra_result, ratio=ratio)
+                if logger:
+                    logger.log(
+                        defn.name,
+                        ref_name,
+                        options,
+                        extra_result,
                         np_data.symbol,
                         np_data.length,
                     )

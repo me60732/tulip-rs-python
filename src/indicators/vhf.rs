@@ -121,15 +121,9 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_vhf::min_data(&options))
 }
 
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    Ok(rust_vhf::min_data_accuracy(&options, decimals))
-}
 
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_vhf::output_length(data_len, &options))
-}
+
+
 
 /// Calculate Vertical Horizontal Filter for multiple assets using SIMD operations
 ///
@@ -424,8 +418,7 @@ pub fn register_vhf_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 

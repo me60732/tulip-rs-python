@@ -419,8 +419,7 @@ pub fn register_trvi_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 
@@ -450,28 +449,4 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_trvi::min_data(&options))
 }
 
-/// Get minimum data length required for TRVI calculation with accuracy
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != rust_trvi::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Expected {} options, got {}",
-            rust_trvi::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_trvi::min_data_accuracy(&options, decimals))
-}
 
-/// Get output length for TRVI calculation
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != rust_trvi::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Expected {} options, got {}",
-            rust_trvi::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_trvi::output_length(data_len, &options))
-}

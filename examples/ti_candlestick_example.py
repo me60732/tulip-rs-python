@@ -133,8 +133,7 @@ close_np = np.array(close_, dtype=np.float64)
 # Pre-flight info
 # ---------------------------------------------------------------------------
 min_bars = cdl.min_data(options)
-n_out = cdl.output_length(len(close_np), options)
-print(f"Bars in: {len(close_np)}  |  min_data: {min_bars}  |  output bars: {n_out}")
+print(f"Bars in: {len(close_np)}  |  min_data: {min_bars}")
 
 # ---------------------------------------------------------------------------
 # Run 1 — no forecast filter (all patterns matching current trend)

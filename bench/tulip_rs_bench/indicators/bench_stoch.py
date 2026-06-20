@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, List
 
 import ta.momentum
+import tulipy
 
 import tulip_rs
 from tulip_rs_bench.common import (
@@ -13,6 +14,8 @@ from tulip_rs_bench.common import (
 )
 
 
+import pandas as pd
+import pandas_ta as pta
 def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
     return tulip_rs.indicators.stoch.indicator(
         [data.high, data.low, data.close], options
@@ -20,8 +23,6 @@ def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
 
 
 def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
-    # options: [k_period, k_slow_period, d_period]
-    # ta.StochasticOscillator: window=K period, smooth_window=D period
     return ta.momentum.StochasticOscillator(
         high=data.high,
         low=data.low,
@@ -30,6 +31,20 @@ def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
         smooth_window=int(options[2]),
     ).stoch()
 
+
+def _tulipy(data: OhlcvArrays, options: List[float]) -> Any:
+    return tulipy.stoch(
+        data.high,
+        data.low,
+        data.close,
+        pct_k_period=int(options[0]),
+        pct_k_slowing_period=int(options[1]),
+        pct_d_period=int(options[2]),
+    )
+
+
+def _pta(data: OhlcvArrays, options: List[float]) -> Any:
+    return pta.stoch(pd.Series(data.high), pd.Series(data.low), pd.Series(data.close))
 
 BENCHMARK = BenchmarkDef(
     name="stoch",
@@ -41,4 +56,5 @@ BENCHMARK = BenchmarkDef(
     ],
     tulip_fn=_tulip,
     ref_fn=_ref,
+    extra_refs={"tulipy": _tulipy, "pandas_ta": _pta},
 )

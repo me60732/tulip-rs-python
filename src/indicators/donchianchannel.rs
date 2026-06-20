@@ -139,29 +139,7 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_donchianchannel::min_data(&options))
 }
 
-#[pyfunction]
-pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != rust_donchianchannel::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Expected {} options, got {}",
-            rust_donchianchannel::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_donchianchannel::output_length(data_length, &options))
-}
 
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != rust_donchianchannel::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Expected {} options, got {}",
-            rust_donchianchannel::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_donchianchannel::min_data_accuracy(&options, decimals))
-}
 
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
@@ -387,8 +365,7 @@ pub fn register_donchianchannel_module(
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
     submodule.add_class::<DonchianChannelState>()?;

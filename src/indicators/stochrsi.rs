@@ -3,7 +3,6 @@ use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use std::collections::HashMap;
 
-
 use tulip_rs::indicator_types::TIndicatorState;
 use tulip_rs::indicators::stochrsi as rust_stochrsi;
 
@@ -124,7 +123,10 @@ pub fn indicator(
     let options_array: [f64; rust_stochrsi::OPTIONS_WIDTH] = [options[0]];
 
     match rust_stochrsi::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
-        Ok((outputs, state)) => Ok((crate::utils::vecs_to_pyarrays(py, outputs), StochrsiState { inner: state })),
+        Ok((outputs, state)) => Ok((
+            crate::utils::vecs_to_pyarrays(py, outputs),
+            StochrsiState { inner: state },
+        )),
         Err(e) => Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Calculation error: {}",
             e
@@ -308,7 +310,10 @@ pub fn simd_by_assets(
                 .into_iter()
                 .map(|state| StochrsiState { inner: state })
                 .collect();
-            Ok((crate::utils::simd_vecs_to_pyarrays(py, results), stochrsi_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                stochrsi_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by assets calculation failed: {:?}",
@@ -316,7 +321,6 @@ pub fn simd_by_assets(
         ))),
     }
 }
-
 
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
@@ -361,11 +365,10 @@ pub fn simd_by_options(
         }
     }
 
-    let input_arrays: [&[f64]; rust_stochrsi::INPUTS_WIDTH] = [
-        inputs[0].as_slice()?
-    ];
+    let input_arrays: [&[f64]; rust_stochrsi::INPUTS_WIDTH] = [inputs[0].as_slice()?];
 
-    let mut option_arrays: Vec<[f64; rust_stochrsi::OPTIONS_WIDTH]> = Vec::with_capacity(num_options);
+    let mut option_arrays: Vec<[f64; rust_stochrsi::OPTIONS_WIDTH]> =
+        Vec::with_capacity(num_options);
 
     for opt in &options {
         option_arrays.push([opt[0]]);
@@ -420,7 +423,10 @@ pub fn simd_by_options(
                 .into_iter()
                 .map(|state| StochrsiState { inner: state })
                 .collect();
-            Ok((crate::utils::simd_vecs_to_pyarrays(py, results), stochrsi_states))
+            Ok((
+                crate::utils::simd_vecs_to_pyarrays(py, results),
+                stochrsi_states,
+            ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
             "SIMD by options calculation failed: {:?}",
@@ -445,8 +451,7 @@ pub fn register_stochrsi_module(parent_module: &pyo3::Bound<'_, PyModule>) -> py
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 
@@ -470,28 +475,4 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_stochrsi::min_data(&options))
 }
 
-/// Get minimum data length required for STOCHRSI calculation with accuracy
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != rust_stochrsi::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Expected {} options, got {}",
-            rust_stochrsi::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_stochrsi::min_data_accuracy(&options, decimals))
-}
 
-/// Get output length for STOCHRSI calculation
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != rust_stochrsi::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Expected {} options, got {}",
-            rust_stochrsi::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_stochrsi::output_length(data_len, &options))
-}

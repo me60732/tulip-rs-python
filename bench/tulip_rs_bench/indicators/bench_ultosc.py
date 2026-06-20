@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, List
 
 import ta.momentum
+import tulipy
 
 import tulip_rs
 from tulip_rs_bench.common import (
@@ -13,6 +14,8 @@ from tulip_rs_bench.common import (
 )
 
 
+import pandas as pd
+import pandas_ta as pta
 def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
     return tulip_rs.indicators.ultosc.indicator(
         [data.high, data.low, data.close], options
@@ -30,6 +33,20 @@ def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
     ).ultimate_oscillator()
 
 
+def _tulipy(data: OhlcvArrays, options: List[float]) -> Any:
+    return tulipy.ultosc(
+        data.high,
+        data.low,
+        data.close,
+        short_period=int(options[0]),
+        medium_period=int(options[1]),
+        long_period=int(options[2]),
+    )
+
+
+def _pta(data: OhlcvArrays, options: List[float]) -> Any:
+    return pta.uo(pd.Series(data.high), pd.Series(data.low), pd.Series(data.close))
+
 BENCHMARK = BenchmarkDef(
     name="ultosc",
     options_list=[
@@ -40,4 +57,5 @@ BENCHMARK = BenchmarkDef(
     ],
     tulip_fn=_tulip,
     ref_fn=_ref,
+    extra_refs={"tulipy": _tulipy, "pandas_ta": _pta},
 )

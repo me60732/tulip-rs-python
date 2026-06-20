@@ -189,31 +189,7 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_atr::min_data(&options))
 }
 
-/// Get expected output length
-#[pyfunction]
-pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != rust_atr::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Expected {} options, got {}",
-            rust_atr::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_atr::output_length(data_length, &options))
-}
 
-/// Get minimum data required for accuracy
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != rust_atr::OPTIONS_WIDTH {
-        return Err(pyo3::exceptions::PyValueError::new_err(format!(
-            "Expected {} options, got {}",
-            rust_atr::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_atr::min_data_accuracy(&options, decimals))
-}
 
 /// Calculate ATR for multiple assets using SIMD operations
 ///
@@ -485,8 +461,7 @@ pub fn register_atr_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 

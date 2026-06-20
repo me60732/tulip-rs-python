@@ -10,6 +10,7 @@ mod utils;
 fn list_indicators() -> Vec<String> {
     vec![
         "ad".to_string(),
+        "adaptivemsw".to_string(),
         "adosc".to_string(),
         "adx".to_string(),
         "adxr".to_string(),
@@ -22,10 +23,12 @@ fn list_indicators() -> Vec<String> {
         "bbands".to_string(),
         "bop".to_string(),
         "candlestick".to_string(),
+        "ccfisher".to_string(),
         "cci".to_string(),
         "chaikinmf".to_string(),
         "cmo".to_string(),
         "cvi".to_string(),
+        "cybercycle".to_string(),
         "dema".to_string(),
         "di".to_string(),
         "dm".to_string(),
@@ -37,11 +40,17 @@ fn list_indicators() -> Vec<String> {
         "emv".to_string(),
         "fisher".to_string(),
         "fosc".to_string(),
+        "highpass".to_string(),
+        "hilberttransform".to_string(),
         "hma".to_string(),
+        "homodynediscriminator".to_string(),
+        "ichimoku".to_string(),
+        "instantaneoustrendline".to_string(),
         "kama".to_string(),
         "kvo".to_string(),
         "linreg".to_string(),
         "macd".to_string(),
+        "mama".to_string(),
         "marketfi".to_string(),
         "mass".to_string(),
         "max".to_string(),
@@ -61,14 +70,18 @@ fn list_indicators() -> Vec<String> {
         "qstick".to_string(),
         "roc".to_string(),
         "rocr".to_string(),
+        "roofingfilter".to_string(),
         "rsi".to_string(),
         "sma".to_string(),
         "smaenvelope".to_string(),
         "stddev".to_string(),
         "stoch".to_string(),
         "stochrsi".to_string(),
+        "supersmoother".to_string(),
+        "supertrend".to_string(),
         "tema".to_string(),
         "tr".to_string(),
+        "trendmode".to_string(),
         "trima".to_string(),
         "trvi".to_string(),
         "trix".to_string(),
@@ -80,6 +93,7 @@ fn list_indicators() -> Vec<String> {
         "volatility".to_string(),
         "vortex".to_string(),
         "vosc".to_string(),
+        "vwap".to_string(),
         "vwma".to_string(),
         "wad".to_string(),
         "wcprice".to_string(),
@@ -104,7 +118,7 @@ fn tulip_rs(py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Create indicators submodule
     let indicators_module = PyModule::new(py, "indicators")?;
 
-    // Register all 70 indicators using bulk auto-registration
+    // Register all 84 indicators using bulk auto-registration
     bulk_register::register_all_indicator_modules(&indicators_module)?;
 
     // Add the indicators module to the main module

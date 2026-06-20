@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any, List
 
 import ta.volume
+import tulipy
 
 import tulip_rs
 from tulip_rs_bench.common import (
@@ -28,9 +29,14 @@ def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
     ).acc_dist_index()
 
 
+def _tulipy(data: OhlcvArrays, options: List[float]) -> Any:
+    return tulipy.ad(data.high, data.low, data.close, data.volume)
+
+
 BENCHMARK = BenchmarkDef(
     name="ad",
     options_list=[[]],
     tulip_fn=_tulip,
     ref_fn=_ref,
+    extra_refs={"tulipy": _tulipy},
 )

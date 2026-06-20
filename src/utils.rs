@@ -47,6 +47,7 @@ pub fn info_to_pydict<'py>(py: Python<'py>, info: Info) -> PyResult<Bound<'py, P
         g.set_item("label", group.label)?;
         g.set_item("display_type", format!("{:?}", group.display_type))?;
         g.set_item("outputs", group.outputs.to_vec())?;
+        g.set_item("offset", group.offset.map(|s| s.to_string()))?;
         groups_list.append(g)?;
     }
     dict.set_item("display_groups", groups_list)?;

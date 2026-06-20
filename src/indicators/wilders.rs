@@ -121,15 +121,9 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_wilders::min_data(&options))
 }
 
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    Ok(rust_wilders::min_data_accuracy(&options, decimals))
-}
 
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_wilders::output_length(data_len, &options))
-}
+
+
 
 /// Calculate Wilders Moving Average for multiple assets using SIMD operations
 ///
@@ -430,8 +424,7 @@ pub fn register_wilders_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 

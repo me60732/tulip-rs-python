@@ -75,12 +75,6 @@ def main():
 
     min_data = tulip_rs.indicators.donchianchannel.min_data(options)
     print(f"Minimum data required: {min_data}")
-    min_data_accuracy = tulip_rs.indicators.donchianchannel.min_data_accuracy(
-        options, 6
-    )
-    print(f"Minimum data for accuracy (6 decimals): {min_data_accuracy}")
-    output_len = tulip_rs.indicators.donchianchannel.output_length(len(high), options)
-    print(f"Output length for {len(high)} bars: {output_len}")
     print()
 
     ################################################### Full dataset calculation

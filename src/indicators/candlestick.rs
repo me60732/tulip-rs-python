@@ -275,25 +275,6 @@ pub fn min_data(options: Option<Vec<f64>>) -> PyResult<usize> {
     Ok(rust_cdl::min_data(&opts))
 }
 
-/// Return the number of output bars produced for a given number of input bars.
-///
-/// Args:
-///     data_len: number of input bars
-///     options:  [candle_period, trend_period, trend_signal_period] (default [14, 20, 9])
-///
-/// Returns:
-///     int — number of output bars
-///
-/// Example:
-///     >>> n = output_length(len(close), [14, 20, 9])
-///     >>> print(f"Will produce {n} output bars")
-#[pyfunction]
-#[pyo3(signature = (data_len, options=None))]
-pub fn output_length(data_len: usize, options: Option<Vec<f64>>) -> PyResult<usize> {
-    let opts = resolve_options(options)?;
-    Ok(rust_cdl::output_length(data_len, &opts))
-}
-
 /// Return indicator metadata as a dict.
 ///
 /// Returns:
@@ -319,7 +300,6 @@ pub fn register_candlestick_module(
 
     submodule.add_function(pyo3::wrap_pyfunction!(candlestick, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
 
     submodule.add_class::<CandlestickState>()?;

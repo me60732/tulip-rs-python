@@ -130,15 +130,9 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_pivotpoint::min_data(&options))
 }
 
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    Ok(rust_pivotpoint::min_data_accuracy(&options, decimals))
-}
 
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_pivotpoint::output_length(data_len, &options))
-}
+
+
 
 pub fn register_pivotpoint_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
     let submodule = PyModule::new(parent_module.py(), "pivotpoint")?;
@@ -146,8 +140,7 @@ pub fn register_pivotpoint_module(parent_module: &pyo3::Bound<'_, PyModule>) -> 
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
 
     submodule.add_class::<PivotpointState>()?;
 

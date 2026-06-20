@@ -58,10 +58,6 @@ def main():
 
     min_data = tulip_rs.indicators.smaenvelope.min_data(options)
     print(f"Minimum data required: {min_data}")
-    min_data_accuracy = tulip_rs.indicators.smaenvelope.min_data_accuracy(options, 6)
-    print(f"Minimum data for accuracy (6 decimals): {min_data_accuracy}")
-    output_len = tulip_rs.indicators.smaenvelope.output_length(len(close), options)
-    print(f"Output length for {len(close)} bars: {output_len}")
     print()
 
     ################################################### Full dataset calculation

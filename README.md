@@ -53,152 +53,141 @@ RUSTFLAGS="-C target-cpu=native" maturin build --release
 import numpy as np
 import tulip_rs
 
-# Sample price data
-prices = np.array([100.0, 101.5, 102.0, 101.0, 103.5, 104.0, 102.5])
+close = np.array([81.59, 81.06, 82.87, 83.00, 83.61,
+                  83.15, 82.84, 83.99, 84.55, 84.36], dtype=np.float64)
 
-# Calculate Simple Moving Average
-sma_result = tulip_rs.sma(prices, period=3.0)
-sma_values = sma_result.get_output()
-print(f"SMA values: {sma_values}")
+# Calculate EMA(5)
+outputs, state = tulip_rs.indicators.ema.indicator([close], [5.0])
+print("EMA(5):", outputs[0])
 
-# Calculate RSI
-rsi_result = tulip_rs.rsi(prices, period=14.0)
-rsi_values = rsi_result.get_output()
-print(f"RSI values: {rsi_values}")
+# Streaming: continue from saved state without reprocessing history
+new_bar = np.array([85.10], dtype=np.float64)
+next_outputs, next_state = state.batch_indicator([new_bar])
+print("Next EMA:", next_outputs[0])
 
-# OHLC data for candlestick patterns
-open_prices = np.array([100.0, 101.0, 102.0, 101.5, 103.0])
-high_prices = np.array([101.0, 103.0, 103.5, 102.0, 104.0])
-low_prices = np.array([99.5, 100.5, 101.5, 100.0, 102.5])
-close_prices = np.array([101.0, 102.5, 101.5, 103.0, 103.5])
+# MACD — three outputs: macd line, signal, histogram
+high = np.array([82.15, 81.89, 83.03, 83.30, 83.85, 83.90, 83.33, 84.30, 84.84, 85.00], dtype=np.float64)
+low  = np.array([81.29, 80.64, 81.31, 82.65, 83.07, 83.11, 82.49, 82.30, 84.15, 84.11], dtype=np.float64)
+macd_out, _ = tulip_rs.indicators.macd.indicator([close], [2.0, 5.0, 9.0])
+macd_line, signal, histogram = macd_out[0], macd_out[1], macd_out[2]
 
-# Detect hammer patterns
-hammer_result = tulip_rs.hammer(
-    open_prices, high_prices, low_prices, close_prices,
-    line_period=10.0, body_period=10.0,
-    min_long_cdl_height=0.001, min_cdl_height_tolerance=0.05,
-    doji_max_height=0.1
-)
-
-patterns = hammer_result.get_patterns()
-print(f"Hammer patterns: {patterns}")
+# Candlestick patterns (returns list of pattern-match lists per bar)
+open_ = np.array([81.85, 81.20, 81.55, 82.91, 83.10,
+                  83.41, 82.71, 82.70, 84.20, 84.25], dtype=np.float64)
+cdl_out, _ = tulip_rs.indicators.candlestick.indicator([open_, high, low, close], [5.0, 1.0, 1.0])
+for bar_idx, patterns in enumerate(cdl_out[0]):
+    for p in patterns:
+        print(f"Bar {bar_idx}: {p['full_name']} ({p['forecast']})")  
 ```
 
 ## Available Indicators
 
 ### Moving Averages
-- `sma` - Simple Moving Average
-- `ema` - Exponential Moving Average  
-- `wma` - Weighted Moving Average
-- `dema` - Double Exponential Moving Average
-- `tema` - Triple Exponential Moving Average
-- `trima` - Triangular Moving Average
-- `hma` - Hull Moving Average
-- `zlema` - Zero Lag Exponential Moving Average
-- `kama` - Kaufman Adaptive Moving Average
-- `vidya` - Variable Index Dynamic Average
-- `vwma` - Volume Weighted Moving Average
-- `wilders` - Wilder's Smoothing
+- `sma` — Simple Moving Average
+- `ema` — Exponential Moving Average
+- `wma` — Weighted Moving Average
+- `dema` — Double Exponential Moving Average
+- `tema` — Triple Exponential Moving Average
+- `trima` — Triangular Moving Average
+- `hma` — Hull Moving Average
+- `zlema` — Zero-Lag EMA
+- `kama` — Kaufman Adaptive Moving Average
+- `vidya` — Variable Index Dynamic Average
+- `vwma` — Volume Weighted Moving Average
+- `wilders` — Wilder's Smoothing
+- `smaenvelope` — SMA Envelope
 
 ### Oscillators
-- `rsi` - Relative Strength Index
-- `stoch` - Stochastic Oscillator
-- `stochrsi` - Stochastic RSI
-- `willr` - Williams %R
-- `cci` - Commodity Channel Index
-- `cmo` - Chande Momentum Oscillator
-- `ultosc` - Ultimate Oscillator
-- `ao` - Awesome Oscillator
-- `fisher` - Fisher Transform
-- `fosc` - Forecast Oscillator
+- `rsi` — Relative Strength Index
+- `macd` — Moving Average Convergence Divergence
+- `stoch` — Stochastic Oscillator
+- `stochrsi` — Stochastic RSI
+- `willr` — Williams %R
+- `cci` — Commodity Channel Index
+- `cmo` — Chande Momentum Oscillator
+- `ultosc` — Ultimate Oscillator
+- `ao` — Awesome Oscillator
+- `fisher` — Fisher Transform
+- `fosc` — Forecast Oscillator
+- `msw` — Mesa Sine Wave
+- `trix` — TRIX
 
 ### Trend Indicators
-- `macd` - Moving Average Convergence Divergence
-- `ppo` - Percentage Price Oscillator
-- `apo` - Absolute Price Oscillator
-- `adx` - Average Directional Movement Index
-- `adxr` - Average Directional Movement Index Rating
-- `dm` - Directional Movement
-- `di` - Directional Indicator
-- `dx` - Directional Movement Index
-- `aroon` - Aroon
-- `aroonosc` - Aroon Oscillator
-- `psar` - Parabolic SAR
+- `adx` — Average Directional Index
+- `adxr` — ADX Rating
+- `di` — Directional Indicator
+- `dm` — Directional Movement
+- `dx` — Directional Movement Index
+- `aroon` — Aroon
+- `aroonosc` — Aroon Oscillator
+- `psar` — Parabolic SAR
+- `ppo` — Percentage Price Oscillator
+- `apo` — Absolute Price Oscillator
+- `vortex` — Vortex Indicator
+- `elderray` — Elder-Ray Index
+- `donchianchannel` — Donchian Channel
+- `ichimoku` — Ichimoku Cloud
+- `supertrend` — SuperTrend
+- `ef` — Efficiency Ratio
+- `mama` — MESA Adaptive Moving Average
 
 ### Volatility Indicators
-- `bbands` - Bollinger Bands
-- `atr` - Average True Range
-- `natr` - Normalized Average True Range
-- `tr` - True Range
-- `stddev` - Standard Deviation
-- `volatility` - Volatility
-- `vhf` - Vertical Horizontal Filter
+- `bbands` — Bollinger Bands
+- `atr` — Average True Range
+- `natr` — Normalized ATR
+- `tr` — True Range
+- `stddev` — Standard Deviation
+- `volatility` — Volatility
+- `vhf` — Vertical Horizontal Filter
+- `cvi` — Chaikin Volatility
+- `chandelierexit` — Chandelier Exit
+- `keltnerchannel` — Keltner Channel
+- `trvi` — True Range Volatility Index
 
 ### Volume Indicators
-- `ad` - Accumulation/Distribution Line
-- `adosc` - Accumulation/Distribution Oscillator
-- `obv` - On Balance Volume
-- `mfi` - Money Flow Index
-- `nvi` - Negative Volume Index
-- `pvi` - Positive Volume Index
-- `vosc` - Volume Oscillator
-- `kvo` - Klinger Volume Oscillator
-- `emv` - Ease of Movement
-- `wad` - Williams Accumulation/Distribution
+- `ad` — Accumulation/Distribution
+- `adosc` — A/D Oscillator (Chaikin Oscillator)
+- `obv` — On Balance Volume
+- `mfi` — Money Flow Index
+- `nvi` — Negative Volume Index
+- `pvi` — Positive Volume Index
+- `vosc` — Volume Oscillator
+- `kvo` — Klinger Volume Oscillator
+- `emv` — Ease of Movement
+- `wad` — Williams Accumulation/Distribution
+- `marketfi` — Market Facilitation Index
+- `chaikinmf` — Chaikin Money Flow
+- `vwap` — Volume Weighted Average Price
 
-### Price/Statistical Indicators
-- `avgprice` - Average Price
-- `medprice` - Median Price
-- `typprice` - Typical Price
-- `wcprice` - Weighted Close Price
-- `max` - Highest Value Over Period
-- `min` - Lowest Value Over Period
-- `mom` - Momentum
-- `roc` - Rate of Change
-- `rocr` - Rate of Change Ratio
-- `bop` - Balance of Power
-- `linreg` - Linear Regression
-- `tsf` - Time Series Forecast
-- `trix` - TRIX
-- `dpo` - Detrended Price Oscillator
-- And many more...
+### Price & Statistical
+- `avgprice`, `medprice`, `typprice`, `wcprice` — Price transforms
+- `max`, `min` — Rolling maximum / minimum
+- `mom` — Momentum
+- `roc`, `rocr` — Rate of Change
+- `bop` — Balance of Power
+- `linreg`, `tsf` — Linear Regression / Time Series Forecast
+- `dpo` — Detrended Price Oscillator
+- `mass` — Mass Index
+- `md` — Mean Deviation
+- `qstick` — QStick
+- `pivotpoint` — Pivot Points
 
-## Candlestick Patterns
+### Cycle & Ehlers Indicators
+- `cybercycle` — Ehlers CyberCycle
+- `adaptivemsw` — Adaptive Mesa Sine Wave
+- `homodynediscriminator` — Homodyne Discriminator
+- `instantaneoustrendline` — Instantaneous Trendline
+- `trendmode` — Ehlers TrendMode
+- `highpass` — Ehlers High Pass Filter
+- `hilberttransform` — Hilbert Transform
+- `roofingfilter` — Ehlers Roofing Filter
+- `supersmoother` — Ehlers Super Smoother
+- `ccfisher` — Cyber Cycle Fisher
 
-### One Bar Patterns
-- `hammer` - Hammer
-- `hanging_man` - Hanging Man
-- `bullish_belt_hold` - Bullish Belt Hold
-- `bearish_belt_hold` - Bearish Belt Hold
-- `northern_doji` - Northern Doji
-- `southern_doji` - Southern Doji
-- `gapping_up_doji` - Gapping Up Doji
-- `gapping_down_doji` - Gapping Down Doji
-- `one_candle_shooting_star` - Shooting Star
-- `takuri_line` - Takuri Line
-
-### Two Bar Patterns
-- `bullish_engulfing` - Bullish Engulfing
-- `bearish_engulfing` - Bearish Engulfing
-- `dark_cloud_cover` - Dark Cloud Cover
-- `piercing` - Piercing Pattern
-- `bullish_harami` - Bullish Harami
-- `bearish_harami` - Bearish Harami
-- `inverted_hammer` - Inverted Hammer
-
-### Three Bar Patterns
-- `three_white_soldiers` - Three White Soldiers
-- `three_black_crows` - Three Black Crows
-- `morning_star` - Morning Star
-- `evening_star` - Evening Star
-- `three_inside_up` - Three Inside Up
-- `three_inside_down` - Three Inside Down
-- `advance_block` - Advance Block
-
-### Four Bar Patterns
-- `concealing_baby_swallow` - Concealing Baby Swallow
-- `bullish_three_line_strike` - Bullish Three Line Strike
-- `bearish_three_line_strike` - Bearish Three Line Strike
+### Candlestick Patterns
+- 77+ classical patterns via `tulip_rs.indicators.candlestick`
+- Single-pass detection of all patterns
+- Returns per-bar match lists with name, Japanese name, bar count, and forecast type
 
 ## Advanced Usage
 
@@ -227,16 +216,23 @@ print(f"State available: {result.has_state()}")
 ### State Management for Streaming
 
 ```python
-# Initial calculation
-prices_batch1 = np.array([100, 101, 102, 103, 104])
-result1 = tulip_rs.sma(prices_batch1, period=3.0)
-sma1 = result1.get_output()
+import numpy as np
+import tulip_rs
 
-# Save state for continuation
-state_json = result1.state_to_json()
+prices_batch1 = np.array([100.0, 101.0, 102.0, 103.0, 104.0], dtype=np.float64)
+outputs, state = tulip_rs.indicators.sma.indicator([prices_batch1], [3.0])
+print("SMA batch 1:", outputs[0])
 
-# Continue with new data (when supported)
-# This feature enables real-time streaming calculations
+# Serialise state
+json_str = state.to_json()
+
+# Continue with new bars — no reprocessing of history
+prices_batch2 = np.array([105.0, 106.0], dtype=np.float64)
+next_outputs, next_state = state.batch_indicator([prices_batch2])
+print("SMA batch 2:", next_outputs[0])
+
+# Restore from JSON
+restored_state = tulip_rs.indicators.sma.State.from_json(json_str)
 ```
 
 ### Candlestick Pattern Analysis

@@ -131,32 +131,7 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_stddev::min_data(&options_array))
 }
 
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != rust_stddev::OPTIONS_WIDTH {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected {} options, got {}",
-            rust_stddev::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    let options_array: [f64; rust_stddev::OPTIONS_WIDTH] = [options[0]];
-    Ok(rust_stddev::min_data_accuracy(&options_array, decimals))
-}
 
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != rust_stddev::OPTIONS_WIDTH {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected {} options, got {}",
-            rust_stddev::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-
-    let options_array: [f64; rust_stddev::OPTIONS_WIDTH] = [options[0]];
-    Ok(rust_stddev::output_length(data_len, &options_array))
-}
 
 /// Calculate STDDEV (Standard Deviation) for multiple assets using SIMD operations
 ///
@@ -460,8 +435,7 @@ pub fn register_stddev_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 

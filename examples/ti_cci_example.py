@@ -94,8 +94,6 @@ def main():
     print(f"Minimum data required: {min_data}")
 
     # Show minimum data for accuracy
-    min_data_accuracy = tulip_rs.indicators.cci.min_data_accuracy(options, 6)
-    print(f"Minimum data for accuracy (6 decimals): {min_data_accuracy}")
     print()
 
     ################################################### Calculating the Full CCI Line with Optional Outputs

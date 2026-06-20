@@ -449,8 +449,7 @@ pub fn register_trix_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 
@@ -472,24 +471,6 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_trix::min_data(&options))
 }
 
-/// Get minimum data length required for TRIX calculation with accuracy
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "TRIX requires exactly 1 option: period",
-        ));
-    }
-    Ok(rust_trix::min_data_accuracy(&options, decimals))
-}
 
-/// Get output length for TRIX calculation
-#[pyfunction]
-pub fn output_length(data_len: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != 1 {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "TRIX requires exactly 1 option: period",
-        ));
-    }
-    Ok(rust_trix::output_length(data_len, &options))
-}
+
+

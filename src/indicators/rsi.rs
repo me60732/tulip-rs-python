@@ -291,8 +291,7 @@ pub fn register_rsi_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data_accuracy, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(output_length, &submodule)?)?;
+    
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 
@@ -316,31 +315,7 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
     Ok(rust_rsi::min_data(&options))
 }
 
-/// Get expected output length
-#[pyfunction]
-pub fn output_length(data_length: usize, options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != rust_rsi::OPTIONS_WIDTH {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected {} options, got {}",
-            rust_rsi::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_rsi::output_length(data_length, &options))
-}
 
-/// Get minimum data required for accuracy
-#[pyfunction]
-pub fn min_data_accuracy(options: Vec<f64>, decimals: usize) -> PyResult<usize> {
-    if options.len() != rust_rsi::OPTIONS_WIDTH {
-        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected {} options, got {}",
-            rust_rsi::OPTIONS_WIDTH,
-            options.len()
-        )));
-    }
-    Ok(rust_rsi::min_data_accuracy(&options, decimals))
-}
 
 /// Calculate RSI (Relative Strength Index) for multiple assets using SIMD operations
 ///
