@@ -1,6 +1,6 @@
 # Benchmark: candlestick (Candlestick Pattern Scanner)
 # Note: candlestick has a distinct API — it takes named OHLC args and returns
-# per-bar pattern dicts rather than float arrays. No tulipy equivalent.
+# per-bar pattern dicts rather than float arrays.
 from __future__ import annotations
 
 from typing import Any, List

@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any, List
 
 import ta.volume
-import tulipy
 
 import tulip_rs
 from tulip_rs_bench.common import (
@@ -16,8 +15,15 @@ from tulip_rs_bench.common import (
 
 import pandas as pd
 import pandas_ta as pta
+
 def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
     return tulip_rs.indicators.nvi.indicator([data.close, data.volume], options)
+
+
+def _simd_assets(stocks: List[OhlcvArrays], options: List[float]) -> Any:
+    """Process every loaded stock's series together via SIMD lanes."""
+    inputs = [[stock.close, stock.volume] for stock in stocks]
+    return tulip_rs.indicators.nvi.simd_by_assets(inputs, options, None)
 
 
 def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
@@ -25,10 +31,6 @@ def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
         close=data.close,
         volume=data.volume,
     ).negative_volume_index()
-
-
-def _tulipy(data: OhlcvArrays, options: List[float]) -> Any:
-    return tulipy.nvi(data.close, data.volume)
 
 
 def _pta(data: OhlcvArrays, options: List[float]) -> Any:
@@ -39,5 +41,6 @@ BENCHMARK = BenchmarkDef(
     options_list=[[]],
     tulip_fn=_tulip,
     ref_fn=_ref,
-    extra_refs={"tulipy": _tulipy, "pandas_ta": _pta},
+    extra_refs={"pandas_ta": _pta},
+    simd_assets_fn=_simd_assets,
 )

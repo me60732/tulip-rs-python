@@ -120,6 +120,16 @@ class BenchmarkDef:
     tulip_fn: Callable[[OhlcvArrays, List[float]], Any]
     ref_fn: Optional[Callable[[PdOhlcvArrays, List[float]], Any]]
     extra_refs: Optional[Dict[str, Callable[[OhlcvArrays, List[float]], Any]]] = None
+    # simd_assets_fn(stocks, options) -> Any
+    #     Calls tulip_rs.indicators.<name>.simd_by_assets(...) across every
+    #     loaded stock at once, for one option set. Requires len(stocks) to be
+    #     a valid SIMD lane count (2, 4, 8, or 16).
+    simd_assets_fn: Optional[Callable[[List[OhlcvArrays], List[float]], Any]] = None
+    # simd_options_fn(np_data, options_list) -> Any
+    #     Calls tulip_rs.indicators.<name>.simd_by_options(...) for one stock
+    #     across every option set at once. Requires len(options_list) to be
+    #     a valid SIMD lane count (2, 4, 8, or 16).
+    simd_options_fn: Optional[Callable[[OhlcvArrays, List[List[float]]], Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +318,11 @@ def run_benchmark(
 
     pd.Series conversion is done once per stock before the timed region
     so conversion overhead is excluded from measurements.
+
+    If defn.simd_assets_fn / defn.simd_options_fn are set, also times the
+    SIMD-batched paths (simd_by_assets across all stocks, simd_by_options
+    across all option sets) and compares each against a single tulip_fn
+    call as a rough speedup baseline.
     """
     import pandas as pd
 
@@ -377,6 +392,50 @@ def run_benchmark(
                         np_data.symbol,
                         np_data.length,
                     )
+
+    # -----------------------------------------------------------------
+    # SIMD by assets — one option set, every stock processed together
+    # -----------------------------------------------------------------
+    if defn.simd_assets_fn is not None:
+        for options in defn.options_list:
+            simd_result = time_fn(
+                lambda _s=stocks, _o=options: defn.simd_assets_fn(_s, _o)
+            )
+            symbol = f"ALL_{len(stocks)}_ASSETS"
+            _print_row("simd_by_assets", symbol, options, simd_result)
+            if logger:
+                logger.log(
+                    defn.name,
+                    "tulip_rs_python_simd_by_assets",
+                    options,
+                    simd_result,
+                    symbol,
+                    stocks[0].length,
+                )
+
+    # -----------------------------------------------------------------
+    # SIMD by options — one stock, every option set processed together
+    # -----------------------------------------------------------------
+    if defn.simd_options_fn is not None:
+        for np_data in stocks:
+            simd_result = time_fn(
+                lambda _d=np_data, _o=defn.options_list: defn.simd_options_fn(_d, _o)
+            )
+            _print_row(
+                "simd_by_options",
+                np_data.symbol,
+                [float(len(defn.options_list))],
+                simd_result,
+            )
+            if logger:
+                logger.log(
+                    defn.name,
+                    "tulip_rs_python_simd_by_options",
+                    [float(len(defn.options_list))],
+                    simd_result,
+                    np_data.symbol,
+                    np_data.length,
+                )
 
 
 def _fmt_opts(options: List[float]) -> str:

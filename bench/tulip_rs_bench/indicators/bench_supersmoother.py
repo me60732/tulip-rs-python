@@ -14,6 +14,17 @@ def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
     return tulip_rs.indicators.supersmoother.indicator([data.close], options)
 
 
+def _simd_assets(stocks: List[OhlcvArrays], options: List[float]) -> Any:
+    """Process every loaded stock's close series together via SIMD lanes."""
+    inputs = [[stock.close] for stock in stocks]
+    return tulip_rs.indicators.supersmoother.simd_by_assets(inputs, options, None)
+
+
+def _simd_options(data: OhlcvArrays, options_list: List[List[float]]) -> Any:
+    """Process every option set together via SIMD lanes for one stock."""
+    return tulip_rs.indicators.supersmoother.simd_by_options([data.close], options_list, None)
+
+
 def _pta(data: OhlcvArrays, options: List[float]) -> Any:
     return pta.ssf(pd.Series(data.close), length=int(options[0]))
 
@@ -24,4 +35,6 @@ BENCHMARK = BenchmarkDef(
     tulip_fn=_tulip,
     ref_fn=None,
     extra_refs={"pandas_ta": _pta},
+    simd_assets_fn=_simd_assets,
+    simd_options_fn=_simd_options,
 )

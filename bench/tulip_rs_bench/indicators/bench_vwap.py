@@ -16,6 +16,12 @@ def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
     )
 
 
+def _simd_assets(stocks: List[OhlcvArrays], options: List[float]) -> Any:
+    """Process every loaded stock's series together via SIMD lanes."""
+    inputs = [[stock.high, stock.low, stock.close, stock.volume] for stock in stocks]
+    return tulip_rs.indicators.vwap.simd_by_assets(inputs, options, None)
+
+
 def _pta(data: OhlcvArrays, options: List[float]) -> Any:
     idx = pd.date_range("2020-01-01", periods=len(data.high), freq="D")
     return pta.vwap(
@@ -32,4 +38,5 @@ BENCHMARK = BenchmarkDef(
     tulip_fn=_tulip,
     ref_fn=None,
     extra_refs={"pandas_ta": _pta},
+    simd_assets_fn=_simd_assets,
 )

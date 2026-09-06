@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, List
 
-import tulipy
+
 
 import tulip_rs
 from tulip_rs_bench.common import BenchmarkDef, OhlcvArrays, PdOhlcvArrays
@@ -17,8 +17,13 @@ def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
     )
 
 
-def _tulipy(data: OhlcvArrays, options: List[float]) -> Any:
-    return tulipy.wcprice(data.high, data.low, data.close)
+def _simd_assets(stocks: List[OhlcvArrays], options: List[float]) -> Any:
+    """Process every loaded stock's series together via SIMD lanes."""
+    inputs = [[stock.high, stock.low, stock.close] for stock in stocks]
+    return tulip_rs.indicators.wcprice.simd_by_assets(inputs, options, None)
+
+
+
 
 
 def _pta(data: OhlcvArrays, options: List[float]) -> Any:
@@ -29,5 +34,6 @@ BENCHMARK = BenchmarkDef(
     options_list=[[]],
     tulip_fn=_tulip,
     ref_fn=None,
-    extra_refs={"tulipy": _tulipy, "pandas_ta": _pta},
+    extra_refs={"pandas_ta": _pta},
+    simd_assets_fn=_simd_assets,
 )

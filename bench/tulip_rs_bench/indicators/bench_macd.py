@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any, List
 
 import ta.trend
-import tulipy
 
 import tulip_rs
 from tulip_rs_bench.common import (
@@ -29,17 +28,20 @@ def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
     ).macd()
 
 
-def _tulipy(data: OhlcvArrays, options: List[float]) -> Any:
-    return tulipy.macd(
-        data.close,
-        short_period=int(options[0]),
-        long_period=int(options[1]),
-        signal_period=int(options[2]),
-    )
-
-
 def _pta(data: OhlcvArrays, options: List[float]) -> Any:
     return pta.macd(pd.Series(data.close), fast=int(options[0]), slow=int(options[1]), signal=int(options[2]))
+
+
+def _simd_assets(stocks: List[OhlcvArrays], options: List[float]) -> Any:
+    """Process every loaded stock's close series together via SIMD lanes."""
+    inputs = [[stock.close] for stock in stocks]
+    return tulip_rs.indicators.macd.simd_by_assets(inputs, options, None)
+
+
+def _simd_options(data: OhlcvArrays, options_list: List[List[float]]) -> Any:
+    """Process every option set together via SIMD lanes for one stock."""
+    return tulip_rs.indicators.macd.simd_by_options([data.close], options_list, None)
+
 
 BENCHMARK = BenchmarkDef(
     name="macd",
@@ -51,5 +53,7 @@ BENCHMARK = BenchmarkDef(
     ],
     tulip_fn=_tulip,
     ref_fn=_ref,
-    extra_refs={"tulipy": _tulipy, "pandas_ta": _pta},
+    extra_refs={"pandas_ta": _pta},
+    simd_assets_fn=_simd_assets,
+    simd_options_fn=_simd_options,
 )

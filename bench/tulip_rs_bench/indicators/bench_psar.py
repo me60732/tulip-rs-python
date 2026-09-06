@@ -4,7 +4,6 @@ from __future__ import annotations
 from typing import Any, List
 
 import ta.trend
-import tulipy
 
 import tulip_rs
 from tulip_rs_bench.common import (
@@ -16,8 +15,20 @@ from tulip_rs_bench.common import (
 
 import pandas as pd
 import pandas_ta as pta
+
 def _tulip(data: OhlcvArrays, options: List[float]) -> Any:
     return tulip_rs.indicators.psar.indicator([data.high, data.low], options)
+
+
+def _simd_assets(stocks: List[OhlcvArrays], options: List[float]) -> Any:
+    """Process every loaded stock's series together via SIMD lanes."""
+    inputs = [[stock.high, stock.low] for stock in stocks]
+    return tulip_rs.indicators.psar.simd_by_assets(inputs, options, None)
+
+
+def _simd_options(data: OhlcvArrays, options_list: List[List[float]]) -> Any:
+    """Process every option set together via SIMD lanes for one stock."""
+    return tulip_rs.indicators.psar.simd_by_options([data.high, data.low], options_list, None)
 
 
 def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
@@ -30,15 +41,6 @@ def _ref(data: PdOhlcvArrays, options: List[float]) -> Any:
     ).psar_up()
 
 
-def _tulipy(data: OhlcvArrays, options: List[float]) -> Any:
-    return tulipy.psar(
-        data.high,
-        data.low,
-        acceleration_factor_step=options[0],
-        acceleration_factor_maximum=options[1],
-    )
-
-
 def _pta(data: OhlcvArrays, options: List[float]) -> Any:
     return pta.psar(pd.Series(data.high), pd.Series(data.low), pd.Series(data.close))
 
@@ -47,5 +49,7 @@ BENCHMARK = BenchmarkDef(
     options_list=[[0.02, 0.2], [0.01, 0.2], [0.02, 0.1], [0.04, 0.4]],
     tulip_fn=_tulip,
     ref_fn=_ref,
-    extra_refs={"tulipy": _tulipy, "pandas_ta": _pta},
+    extra_refs={"pandas_ta": _pta},
+    simd_assets_fn=_simd_assets,
+    simd_options_fn=_simd_options,
 )
