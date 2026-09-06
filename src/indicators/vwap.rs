@@ -129,7 +129,7 @@ pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
 }
 
 #[pyfunction]
-pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
+pub fn min_data(_options: Vec<f64>) -> PyResult<usize> {
     let options_array: [f64; OPTIONS] = [];
     Ok(Vwap::min_data(&options_array))
 }
