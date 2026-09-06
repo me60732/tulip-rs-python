@@ -1,6 +1,6 @@
 [package]
 name = "tulip_rs_python"
-version = "0.1.16"
+version = "0.2.2"
 edition = "2021"
 description = "Python bindings for TulipRS - Technical Analysis Library"
 license = "MIT"
