@@ -3,13 +3,12 @@ use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::emv as rust_emv;
+use tulip_rs::indicators::emv::{Emv, Indicator, IndicatorState, TIndicatorState, INPUTS, OPTIONS};
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
 pub struct EmvState {
-    inner: rust_emv::IndicatorState,
+    inner: IndicatorState,
 }
 
 #[pymethods]
@@ -21,15 +20,15 @@ impl EmvState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
-        if inputs.len() != rust_emv::INPUTS_WIDTH {
+        if inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
-                rust_emv::INPUTS_WIDTH,
+                INPUTS,
                 inputs.len()
             )));
         }
 
-        let input_arrays: [&[f64]; rust_emv::INPUTS_WIDTH] = [
+        let input_arrays: [&[f64]; INPUTS] = [
             inputs[0].as_slice()?,
             inputs[1].as_slice()?,
             inputs[2].as_slice()?,
@@ -84,31 +83,31 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Py<PyArray1<f64>>>, EmvState)> {
-    if inputs.len() != rust_emv::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_emv::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
-    if options.len() != rust_emv::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_emv::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
-    let input_arrays: [&[f64]; rust_emv::INPUTS_WIDTH] = [
+    let input_arrays: [&[f64]; INPUTS] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
         inputs[2].as_slice()?,
     ];
 
-    let options_array: [f64; rust_emv::OPTIONS_WIDTH] = [];
+    let options_array: [f64; OPTIONS] = [];
 
-    match rust_emv::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
+    match Emv::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((
             crate::utils::vecs_to_pyarrays(py, result),
             EmvState { inner: state },
@@ -122,17 +121,13 @@ pub fn indicator(
 
 #[pyfunction]
 pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
-    crate::utils::info_to_pydict(py, rust_emv::INFO)
+    crate::utils::info_to_pydict(py, Emv::INFO)
 }
 
 #[pyfunction]
-pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_emv::min_data(&options))
+pub fn min_data(_options: Vec<f64>) -> PyResult<usize> {
+    Ok(Emv::min_data(&[]))
 }
-
-
-
-
 
 /// Calculate EMV (Ease of Movement) for multiple assets using SIMD operations
 ///
@@ -218,30 +213,29 @@ pub fn simd_by_assets(
 
     // Validate that each asset has the correct number of inputs
     for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
-        if asset_inputs.len() != rust_emv::INPUTS_WIDTH {
+        if asset_inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Asset {} expected {} inputs, got {}",
                 asset_idx,
-                rust_emv::INPUTS_WIDTH,
+                INPUTS,
                 asset_inputs.len()
             )));
         }
     }
 
-    if options.len() != rust_emv::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_emv::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
     // Convert Python arrays to Rust slices for each asset
-    let mut asset_input_arrays: Vec<[&[f64]; rust_emv::INPUTS_WIDTH]> =
-        Vec::with_capacity(num_assets);
+    let mut asset_input_arrays: Vec<[&[f64]; INPUTS]> = Vec::with_capacity(num_assets);
 
     for asset_inputs in &inputs {
-        let input_array: [&[f64]; rust_emv::INPUTS_WIDTH] = [
+        let input_array: [&[f64]; INPUTS] = [
             asset_inputs[0].as_slice()?, // high
             asset_inputs[1].as_slice()?, // low
             asset_inputs[2].as_slice()?, // volume
@@ -250,47 +244,27 @@ pub fn simd_by_assets(
     }
 
     // Create array of references for the by_assets function
-    let input_refs: Vec<&[&[f64]; rust_emv::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+    let input_refs: Vec<&[&[f64]; INPUTS]> = asset_input_arrays.iter().collect();
 
-    let options_array: [f64; rust_emv::OPTIONS_WIDTH] = [];
+    let options_array: [f64; OPTIONS] = [];
 
     // Call the SIMD by assets function with proper const generic
     let result = match num_assets {
         2 => {
-            let input_array: &[&[&[f64]; rust_emv::INPUTS_WIDTH]; 2] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_emv::by_assets::indicator::<2>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 2] = input_refs.as_slice().try_into().unwrap();
+            Emv::indicator_by_assets::<2>(input_array, &options_array, optional_outputs.as_deref())
         }
         4 => {
-            let input_array: &[&[&[f64]; rust_emv::INPUTS_WIDTH]; 4] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_emv::by_assets::indicator::<4>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 4] = input_refs.as_slice().try_into().unwrap();
+            Emv::indicator_by_assets::<4>(input_array, &options_array, optional_outputs.as_deref())
         }
         8 => {
-            let input_array: &[&[&[f64]; rust_emv::INPUTS_WIDTH]; 8] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_emv::by_assets::indicator::<8>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 8] = input_refs.as_slice().try_into().unwrap();
+            Emv::indicator_by_assets::<8>(input_array, &options_array, optional_outputs.as_deref())
         }
         16 => {
-            let input_array: &[&[&[f64]; rust_emv::INPUTS_WIDTH]; 16] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_emv::by_assets::indicator::<16>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 16] = input_refs.as_slice().try_into().unwrap();
+            Emv::indicator_by_assets::<16>(input_array, &options_array, optional_outputs.as_deref())
         }
         _ => unreachable!("Already validated SIMD lane count"),
     };
@@ -317,7 +291,7 @@ pub fn register_emv_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    
+
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_class::<EmvState>()?;
 

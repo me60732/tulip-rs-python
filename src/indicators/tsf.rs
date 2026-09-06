@@ -4,12 +4,14 @@ use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::tsf as rust_tsf;
+use tulip_rs::indicators::tsf::{
+    Indicator, IndicatorByOptions, IndicatorState, Tsf, INPUTS, OPTIONS,
+};
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
 pub struct TsfState {
-    inner: rust_tsf::IndicatorState,
+    inner: IndicatorState,
 }
 
 #[pymethods]
@@ -21,15 +23,15 @@ impl TsfState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
-        if inputs.len() != rust_tsf::INPUTS_WIDTH {
+        if inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
-                rust_tsf::INPUTS_WIDTH,
+                INPUTS,
                 inputs.len()
             )));
         }
 
-        let input_arrays: [&[f64]; rust_tsf::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+        let input_arrays: [&[f64]; INPUTS] = [inputs[0].as_slice()?];
 
         match self
             .inner
@@ -80,26 +82,27 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Py<PyArray1<f64>>>, TsfState)> {
-    if inputs.len() != rust_tsf::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_tsf::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
-    if options.len() != rust_tsf::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected 1 options, got {}",
+            "Expected {} options, got {}",
+            OPTIONS,
             options.len()
         )));
     }
 
-    let input_arrays: [&[f64]; rust_tsf::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let input_arrays: [&[f64]; INPUTS] = [inputs[0].as_slice()?];
 
-    let options_array: [f64; rust_tsf::OPTIONS_WIDTH] = [options[0]];
+    let options_array: [f64; OPTIONS] = [options[0]];
 
-    match rust_tsf::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
+    match Tsf::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((
             crate::utils::vecs_to_pyarrays(py, result),
             TsfState { inner: state },
@@ -113,17 +116,22 @@ pub fn indicator(
 
 #[pyfunction]
 pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
-    crate::utils::info_to_pydict(py, rust_tsf::INFO)
+    crate::utils::info_to_pydict(py, Tsf::INFO)
 }
 
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_tsf::min_data(&options))
+    if options.len() != OPTIONS {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            OPTIONS,
+            options.len()
+        )));
+    }
+
+    let options_array: [f64; OPTIONS] = [options[0]];
+    Ok(Tsf::min_data(&options_array))
 }
-
-
-
-
 
 /// Calculate Time Series Forecast (TSF) for multiple assets using SIMD operations
 ///
@@ -213,77 +221,54 @@ pub fn simd_by_assets(
 
     // Validate that each asset has the correct number of inputs
     for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
-        if asset_inputs.len() != rust_tsf::INPUTS_WIDTH {
+        if asset_inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Asset {} expected {} inputs, got {}",
                 asset_idx,
-                rust_tsf::INPUTS_WIDTH,
+                INPUTS,
                 asset_inputs.len()
             )));
         }
     }
 
-    if options.len() != rust_tsf::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_tsf::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
     // Convert Python arrays to Rust slices for each asset
-    let mut asset_input_arrays: Vec<[&[f64]; rust_tsf::INPUTS_WIDTH]> =
-        Vec::with_capacity(num_assets);
+    let mut asset_input_arrays: Vec<[&[f64]; INPUTS]> = Vec::with_capacity(num_assets);
 
     for asset_inputs in &inputs {
-        let input_array: [&[f64]; rust_tsf::INPUTS_WIDTH] = [
-            asset_inputs[0].as_slice()?, // real
-        ];
+        let input_array: [&[f64]; INPUTS] = [asset_inputs[0].as_slice()?];
         asset_input_arrays.push(input_array);
     }
 
     // Create array of references for the by_assets function
-    let input_refs: Vec<&[&[f64]; rust_tsf::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+    let input_refs: Vec<&[&[f64]; INPUTS]> = asset_input_arrays.iter().collect();
 
-    let options_array: [f64; rust_tsf::OPTIONS_WIDTH] = [options[0]];
+    let options_array: [f64; OPTIONS] = [options[0]];
 
     // Call the SIMD by assets function with proper const generic
     let result = match num_assets {
         2 => {
-            let input_array: &[&[&[f64]; rust_tsf::INPUTS_WIDTH]; 2] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_tsf::by_assets::indicator::<2>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 2] = input_refs.as_slice().try_into().unwrap();
+            Tsf::indicator_by_assets::<2>(input_array, &options_array, optional_outputs.as_deref())
         }
         4 => {
-            let input_array: &[&[&[f64]; rust_tsf::INPUTS_WIDTH]; 4] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_tsf::by_assets::indicator::<4>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 4] = input_refs.as_slice().try_into().unwrap();
+            Tsf::indicator_by_assets::<4>(input_array, &options_array, optional_outputs.as_deref())
         }
         8 => {
-            let input_array: &[&[&[f64]; rust_tsf::INPUTS_WIDTH]; 8] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_tsf::by_assets::indicator::<8>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 8] = input_refs.as_slice().try_into().unwrap();
+            Tsf::indicator_by_assets::<8>(input_array, &options_array, optional_outputs.as_deref())
         }
         16 => {
-            let input_array: &[&[&[f64]; rust_tsf::INPUTS_WIDTH]; 16] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_tsf::by_assets::indicator::<16>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 16] = input_refs.as_slice().try_into().unwrap();
+            Tsf::indicator_by_assets::<16>(input_array, &options_array, optional_outputs.as_deref())
         }
         _ => unreachable!("Already validated SIMD lane count"),
     };
@@ -303,6 +288,17 @@ pub fn simd_by_assets(
     }
 }
 
+/// Calculate Time Series Forecast (TSF) for a single asset with multiple options using SIMD
+///
+/// Parameters:
+/// - inputs: List of numpy arrays [real]
+/// - options: List of option arrays, where each array contains [period]
+/// - optional_outputs: Optional list of booleans for additional outputs
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of TSF results for each option set
+///   - states: Vector of TsfState objects for continuing calculations
 #[pyfunction]
 #[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_options(
@@ -327,72 +323,52 @@ pub fn simd_by_options(
         )));
     }
 
-    if inputs.len() != rust_tsf::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_tsf::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
     for (opt_idx, opt) in options.iter().enumerate() {
-        if opt.len() != rust_tsf::OPTIONS_WIDTH {
+        if opt.len() != OPTIONS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Option set {} expected {} values, got {}",
                 opt_idx,
-                rust_tsf::OPTIONS_WIDTH,
+                OPTIONS,
                 opt.len()
             )));
         }
     }
 
-    let input_arrays: [&[f64]; rust_tsf::INPUTS_WIDTH] = [inputs[0].as_slice()?];
+    let input_arrays: [&[f64]; INPUTS] = [inputs[0].as_slice()?];
 
-    let mut option_arrays: Vec<[f64; rust_tsf::OPTIONS_WIDTH]> = Vec::with_capacity(num_options);
+    let mut option_arrays: Vec<[f64; OPTIONS]> = Vec::with_capacity(num_options);
 
     for opt in &options {
         option_arrays.push([opt[0]]);
     }
 
-    let option_refs: Vec<&[f64; rust_tsf::OPTIONS_WIDTH]> = option_arrays.iter().collect();
+    let option_refs: Vec<&[f64; OPTIONS]> = option_arrays.iter().collect();
 
     // Call the SIMD by options function with proper const generic
     let result = match num_options {
         2 => {
-            let opt_array: &[&[f64; rust_tsf::OPTIONS_WIDTH]; 2] =
-                option_refs.as_slice().try_into().unwrap();
-            rust_tsf::by_options::indicator::<2>(
-                &input_arrays,
-                opt_array,
-                optional_outputs.as_deref(),
-            )
+            let opt_array: &[&[f64; OPTIONS]; 2] = option_refs.as_slice().try_into().unwrap();
+            Tsf::indicator_by_options::<2>(&input_arrays, opt_array, optional_outputs.as_deref())
         }
         4 => {
-            let opt_array: &[&[f64; rust_tsf::OPTIONS_WIDTH]; 4] =
-                option_refs.as_slice().try_into().unwrap();
-            rust_tsf::by_options::indicator::<4>(
-                &input_arrays,
-                opt_array,
-                optional_outputs.as_deref(),
-            )
+            let opt_array: &[&[f64; OPTIONS]; 4] = option_refs.as_slice().try_into().unwrap();
+            Tsf::indicator_by_options::<4>(&input_arrays, opt_array, optional_outputs.as_deref())
         }
         8 => {
-            let opt_array: &[&[f64; rust_tsf::OPTIONS_WIDTH]; 8] =
-                option_refs.as_slice().try_into().unwrap();
-            rust_tsf::by_options::indicator::<8>(
-                &input_arrays,
-                opt_array,
-                optional_outputs.as_deref(),
-            )
+            let opt_array: &[&[f64; OPTIONS]; 8] = option_refs.as_slice().try_into().unwrap();
+            Tsf::indicator_by_options::<8>(&input_arrays, opt_array, optional_outputs.as_deref())
         }
         16 => {
-            let opt_array: &[&[f64; rust_tsf::OPTIONS_WIDTH]; 16] =
-                option_refs.as_slice().try_into().unwrap();
-            rust_tsf::by_options::indicator::<16>(
-                &input_arrays,
-                opt_array,
-                optional_outputs.as_deref(),
-            )
+            let opt_array: &[&[f64; OPTIONS]; 16] = option_refs.as_slice().try_into().unwrap();
+            Tsf::indicator_by_options::<16>(&input_arrays, opt_array, optional_outputs.as_deref())
         }
         _ => unreachable!("Already validated SIMD lane count"),
     };
@@ -428,7 +404,7 @@ pub fn register_tsf_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    
+
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 

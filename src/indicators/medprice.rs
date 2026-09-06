@@ -3,13 +3,14 @@ use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::medprice as rust_medprice;
+use tulip_rs::indicators::medprice::{
+    Indicator, IndicatorState, Medprice, TIndicatorState, INPUTS, OPTIONS,
+};
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
 pub struct MedpriceState {
-    inner: rust_medprice::IndicatorState,
+    inner: IndicatorState,
 }
 
 #[pymethods]
@@ -21,16 +22,15 @@ impl MedpriceState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
-        if inputs.len() != rust_medprice::INPUTS_WIDTH {
+        if inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
-                rust_medprice::INPUTS_WIDTH,
+                INPUTS,
                 inputs.len()
             )));
         }
 
-        let input_arrays: [&[f64]; rust_medprice::INPUTS_WIDTH] =
-            [inputs[0].as_slice()?, inputs[1].as_slice()?];
+        let input_arrays: [&[f64]; INPUTS] = [inputs[0].as_slice()?, inputs[1].as_slice()?];
 
         match self
             .inner
@@ -81,28 +81,27 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Py<PyArray1<f64>>>, MedpriceState)> {
-    if inputs.len() != rust_medprice::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_medprice::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
-    if options.len() != rust_medprice::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_medprice::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
-    let input_arrays: [&[f64]; rust_medprice::INPUTS_WIDTH] =
-        [inputs[0].as_slice()?, inputs[1].as_slice()?];
+    let input_arrays: [&[f64]; INPUTS] = [inputs[0].as_slice()?, inputs[1].as_slice()?];
 
-    let options_array: [f64; rust_medprice::OPTIONS_WIDTH] = [];
+    let options_array: [f64; OPTIONS] = [];
 
-    match rust_medprice::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
+    match Medprice::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((
             crate::utils::vecs_to_pyarrays(py, result),
             MedpriceState { inner: state },
@@ -116,17 +115,14 @@ pub fn indicator(
 
 #[pyfunction]
 pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
-    crate::utils::info_to_pydict(py, rust_medprice::INFO)
+    crate::utils::info_to_pydict(py, Medprice::INFO)
 }
 
 #[pyfunction]
-pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_medprice::min_data(&options))
+pub fn min_data(_options: Vec<f64>) -> PyResult<usize> {
+    let options_array: [f64; OPTIONS] = [];
+    Ok(Medprice::min_data(&options_array))
 }
-
-
-
-
 
 /// Calculate MEDPRICE for multiple assets using SIMD operations
 ///
@@ -171,90 +167,69 @@ pub fn simd_by_assets(
 
     // Validate that each asset has the correct number of inputs
     for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
-        if asset_inputs.len() != rust_medprice::INPUTS_WIDTH {
+        if asset_inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Asset {} expected {} inputs, got {}",
                 asset_idx,
-                rust_medprice::INPUTS_WIDTH,
+                INPUTS,
                 asset_inputs.len()
             )));
         }
     }
 
-    if options.len() != rust_medprice::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_medprice::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
     // Convert Python arrays to Rust slices for each asset
-    let mut asset_input_arrays: Vec<[&[f64]; rust_medprice::INPUTS_WIDTH]> =
-        Vec::with_capacity(num_assets);
+    let mut asset_input_arrays: Vec<[&[f64]; INPUTS]> = Vec::with_capacity(num_assets);
 
     for asset_inputs in &inputs {
-        let input_array: Result<[&[f64]; rust_medprice::INPUTS_WIDTH], _> = asset_inputs
-            .iter()
-            .map(|arr| arr.as_slice())
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into();
-
-        match input_array {
-            Ok(arr) => asset_input_arrays.push(arr),
-            Err(_) => {
-                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                    "Failed to convert input arrays",
-                ))
-            }
-        }
+        let input_array: [&[f64]; INPUTS] = [
+            asset_inputs[0].as_slice()?, // high
+            asset_inputs[1].as_slice()?, // low
+        ];
+        asset_input_arrays.push(input_array);
     }
 
     // Create array of references for the by_assets function
-    let input_refs: Vec<&[&[f64]; rust_medprice::INPUTS_WIDTH]> =
-        asset_input_arrays.iter().collect();
+    let input_refs: Vec<&[&[f64]; INPUTS]> = asset_input_arrays.iter().collect();
 
-    let options_array: Result<[f64; rust_medprice::OPTIONS_WIDTH], _> = options.try_into();
-    let options_array = options_array.map_err(|_| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Failed to convert options to array of length {}",
-            rust_medprice::OPTIONS_WIDTH
-        ))
-    })?;
+    let options_array: [f64; OPTIONS] = [];
 
     // Call the SIMD by assets function with proper const generic
     let result = match num_assets {
         2 => {
-            let input_array: &[&[&[f64]; rust_medprice::INPUTS_WIDTH]; 2] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_medprice::by_assets::indicator::<2>(
+            let input_array: &[&[&[f64]; INPUTS]; 2] = input_refs.as_slice().try_into().unwrap();
+            Medprice::indicator_by_assets::<2>(
                 input_array,
                 &options_array,
                 optional_outputs.as_deref(),
             )
         }
         4 => {
-            let input_array: &[&[&[f64]; rust_medprice::INPUTS_WIDTH]; 4] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_medprice::by_assets::indicator::<4>(
+            let input_array: &[&[&[f64]; INPUTS]; 4] = input_refs.as_slice().try_into().unwrap();
+            Medprice::indicator_by_assets::<4>(
                 input_array,
                 &options_array,
                 optional_outputs.as_deref(),
             )
         }
         8 => {
-            let input_array: &[&[&[f64]; rust_medprice::INPUTS_WIDTH]; 8] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_medprice::by_assets::indicator::<8>(
+            let input_array: &[&[&[f64]; INPUTS]; 8] = input_refs.as_slice().try_into().unwrap();
+            Medprice::indicator_by_assets::<8>(
                 input_array,
                 &options_array,
                 optional_outputs.as_deref(),
             )
         }
         16 => {
-            let input_array: &[&[&[f64]; rust_medprice::INPUTS_WIDTH]; 16] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_medprice::by_assets::indicator::<16>(
+            let input_array: &[&[&[f64]; INPUTS]; 16] = input_refs.as_slice().try_into().unwrap();
+            Medprice::indicator_by_assets::<16>(
                 input_array,
                 &options_array,
                 optional_outputs.as_deref(),
@@ -265,13 +240,13 @@ pub fn simd_by_assets(
 
     match result {
         Ok((results, states)) => {
-            let indicator_states: Vec<MedpriceState> = states
+            let medprice_states: Vec<MedpriceState> = states
                 .into_iter()
                 .map(|state| MedpriceState { inner: state })
                 .collect();
             Ok((
                 crate::utils::simd_vecs_to_pyarrays(py, results),
-                indicator_states,
+                medprice_states,
             ))
         }
         Err(e) => Err(PyErr::new::<pyo3::exceptions::PyRuntimeError, _>(format!(
@@ -288,7 +263,7 @@ pub fn register_medprice_module(parent_module: &pyo3::Bound<'_, PyModule>) -> py
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    
+
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_class::<MedpriceState>()?;
 

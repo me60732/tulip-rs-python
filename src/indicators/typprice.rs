@@ -3,13 +3,14 @@ use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::typprice as rust_typprice;
+use tulip_rs::indicators::typprice::{
+    Indicator, IndicatorState, TIndicatorState, Typprice, INPUTS, OPTIONS,
+};
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
 pub struct TyppriceState {
-    inner: rust_typprice::IndicatorState,
+    inner: IndicatorState,
 }
 
 #[pymethods]
@@ -21,15 +22,15 @@ impl TyppriceState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
-        if inputs.len() != rust_typprice::INPUTS_WIDTH {
+        if inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
-                rust_typprice::INPUTS_WIDTH,
+                INPUTS,
                 inputs.len()
             )));
         }
 
-        let input_arrays: [&[f64]; rust_typprice::INPUTS_WIDTH] = [
+        let input_arrays: [&[f64]; INPUTS] = [
             inputs[0].as_slice()?,
             inputs[1].as_slice()?,
             inputs[2].as_slice()?,
@@ -84,30 +85,31 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Py<PyArray1<f64>>>, TyppriceState)> {
-    if inputs.len() != rust_typprice::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_typprice::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
-    if options.len() != rust_typprice::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Expected 0 options, got {}",
+            "Expected {} options, got {}",
+            OPTIONS,
             options.len()
         )));
     }
 
-    let input_arrays: [&[f64]; rust_typprice::INPUTS_WIDTH] = [
+    let input_arrays: [&[f64]; INPUTS] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
         inputs[2].as_slice()?,
     ];
 
-    let options_array: [f64; rust_typprice::OPTIONS_WIDTH] = [];
+    let options_array: [f64; OPTIONS] = [];
 
-    match rust_typprice::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
+    match Typprice::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((
             crate::utils::vecs_to_pyarrays(py, result),
             TyppriceState { inner: state },
@@ -121,17 +123,13 @@ pub fn indicator(
 
 #[pyfunction]
 pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
-    crate::utils::info_to_pydict(py, rust_typprice::INFO)
+    crate::utils::info_to_pydict(py, Typprice::INFO)
 }
 
 #[pyfunction]
-pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_typprice::min_data(&options))
+pub fn min_data(_options: Vec<f64>) -> PyResult<usize> {
+    Ok(Typprice::min_data(&[]))
 }
-
-
-
-
 
 /// Calculate Typical Price for multiple assets using SIMD operations
 ///
@@ -175,7 +173,7 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
 ///     [high1, low1, close1],  # Asset 1
 ///     [high2, low2, close2],  # Asset 2
 ///     [high3, low3, close3],  # Asset 3
-///     [high4, low4, close4],  # Asset 4
+///     [high4, low4, close4],  # Asset 4,
 /// ]
 /// options = []  # No options
 ///
@@ -220,30 +218,29 @@ pub fn simd_by_assets(
 
     // Validate that each asset has the correct number of inputs
     for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
-        if asset_inputs.len() != rust_typprice::INPUTS_WIDTH {
+        if asset_inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Asset {} expected {} inputs, got {}",
                 asset_idx,
-                rust_typprice::INPUTS_WIDTH,
+                INPUTS,
                 asset_inputs.len()
             )));
         }
     }
 
-    if options.len() != rust_typprice::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_typprice::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
     // Convert Python arrays to Rust slices for each asset
-    let mut asset_input_arrays: Vec<[&[f64]; rust_typprice::INPUTS_WIDTH]> =
-        Vec::with_capacity(num_assets);
+    let mut asset_input_arrays: Vec<[&[f64]; INPUTS]> = Vec::with_capacity(num_assets);
 
     for asset_inputs in &inputs {
-        let input_array: [&[f64]; rust_typprice::INPUTS_WIDTH] = [
+        let input_array: [&[f64]; INPUTS] = [
             asset_inputs[0].as_slice()?, // high
             asset_inputs[1].as_slice()?, // low
             asset_inputs[2].as_slice()?, // close
@@ -252,44 +249,39 @@ pub fn simd_by_assets(
     }
 
     // Create array of references for the by_assets function
-    let input_refs: Vec<&[&[f64]; rust_typprice::INPUTS_WIDTH]> =
-        asset_input_arrays.iter().collect();
+    let input_refs: Vec<&[&[f64]; INPUTS]> = asset_input_arrays.iter().collect();
 
-    let options_array: [f64; rust_typprice::OPTIONS_WIDTH] = [];
+    let options_array: [f64; OPTIONS] = [];
 
     // Call the SIMD by assets function with proper const generic
     let result = match num_assets {
         2 => {
-            let input_array: &[&[&[f64]; rust_typprice::INPUTS_WIDTH]; 2] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_typprice::by_assets::indicator::<2>(
+            let input_array: &[&[&[f64]; INPUTS]; 2] = input_refs.as_slice().try_into().unwrap();
+            Typprice::indicator_by_assets::<2>(
                 input_array,
                 &options_array,
                 optional_outputs.as_deref(),
             )
         }
         4 => {
-            let input_array: &[&[&[f64]; rust_typprice::INPUTS_WIDTH]; 4] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_typprice::by_assets::indicator::<4>(
+            let input_array: &[&[&[f64]; INPUTS]; 4] = input_refs.as_slice().try_into().unwrap();
+            Typprice::indicator_by_assets::<4>(
                 input_array,
                 &options_array,
                 optional_outputs.as_deref(),
             )
         }
         8 => {
-            let input_array: &[&[&[f64]; rust_typprice::INPUTS_WIDTH]; 8] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_typprice::by_assets::indicator::<8>(
+            let input_array: &[&[&[f64]; INPUTS]; 8] = input_refs.as_slice().try_into().unwrap();
+            Typprice::indicator_by_assets::<8>(
                 input_array,
                 &options_array,
                 optional_outputs.as_deref(),
             )
         }
         16 => {
-            let input_array: &[&[&[f64]; rust_typprice::INPUTS_WIDTH]; 16] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_typprice::by_assets::indicator::<16>(
+            let input_array: &[&[&[f64]; INPUTS]; 16] = input_refs.as_slice().try_into().unwrap();
+            Typprice::indicator_by_assets::<16>(
                 input_array,
                 &options_array,
                 optional_outputs.as_deref(),
@@ -332,7 +324,7 @@ pub fn register_typprice_module(parent_module: &pyo3::Bound<'_, PyModule>) -> py
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    
+
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_class::<TyppriceState>()?;
 

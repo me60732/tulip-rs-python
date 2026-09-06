@@ -4,12 +4,12 @@ use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::pivotpoint as rust_pivotpoint;
+use tulip_rs::indicators::pivotpoint::{min_data, IndicatorState, INFO, INPUTS, OPTIONS};
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
 pub struct PivotpointState {
-    inner: rust_pivotpoint::IndicatorState,
+    inner: IndicatorState,
 }
 
 #[pymethods]
@@ -21,15 +21,15 @@ impl PivotpointState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
-        if inputs.len() != rust_pivotpoint::INPUTS_WIDTH {
+        if inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
-                rust_pivotpoint::INPUTS_WIDTH,
+                INPUTS,
                 inputs.len()
             )));
         }
 
-        let input_arrays: [&[f64]; rust_pivotpoint::INPUTS_WIDTH] = [
+        let input_arrays: [&[f64]; INPUTS] = [
             inputs[0].as_slice()?,
             inputs[1].as_slice()?,
             inputs[2].as_slice()?,
@@ -74,6 +74,10 @@ impl PivotpointState {
             ))
         }
     }
+
+    fn __repr__(&self) -> String {
+        "PivotpointState(internal)".to_string()
+    }
 }
 
 #[pyfunction]
@@ -84,31 +88,40 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Py<PyArray1<f64>>>, PivotpointState)> {
-    if inputs.len() != rust_pivotpoint::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_pivotpoint::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
-    if options.len() != rust_pivotpoint::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_pivotpoint::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
-    let input_arrays: [&[f64]; rust_pivotpoint::INPUTS_WIDTH] = [
+    let input_arrays: [&[f64]; INPUTS] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
         inputs[2].as_slice()?,
     ];
 
-    let options_array: [f64; rust_pivotpoint::OPTIONS_WIDTH] = [options[0]];
+    // Pivotpoint uses a slice for options (not array), but we need to convert
+    if options.is_empty() {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
+            "Pivotpoint requires at least one option",
+        ));
+    }
 
-    match rust_pivotpoint::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
+    match tulip_rs::indicators::pivotpoint::indicator(
+        &input_arrays,
+        &[options[0]],
+        optional_outputs.as_deref(),
+    ) {
         Ok((result, state)) => Ok((
             crate::utils::vecs_to_pyarrays(py, result),
             PivotpointState { inner: state },
@@ -122,25 +135,20 @@ pub fn indicator(
 
 #[pyfunction]
 pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
-    crate::utils::info_to_pydict(py, rust_pivotpoint::INFO)
+    crate::utils::info_to_pydict(py, INFO)
 }
 
 #[pyfunction]
-pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_pivotpoint::min_data(&options))
+pub fn min_data_func(options: Vec<f64>) -> PyResult<usize> {
+    Ok(min_data(&options))
 }
-
-
-
-
 
 pub fn register_pivotpoint_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::PyResult<()> {
     let submodule = PyModule::new(parent_module.py(), "pivotpoint")?;
 
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
-    submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    
+    submodule.add_function(pyo3::wrap_pyfunction!(min_data_func, &submodule)?)?;
 
     submodule.add_class::<PivotpointState>()?;
 

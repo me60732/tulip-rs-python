@@ -4,12 +4,12 @@ use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::nvi as rust_nvi;
+use tulip_rs::indicators::nvi::{Indicator, IndicatorState, Nvi, INPUTS, OPTIONS};
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
 pub struct NviState {
-    inner: rust_nvi::IndicatorState,
+    inner: IndicatorState,
 }
 
 #[pymethods]
@@ -21,16 +21,15 @@ impl NviState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
-        if inputs.len() != rust_nvi::INPUTS_WIDTH {
+        if inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
-                rust_nvi::INPUTS_WIDTH,
+                INPUTS,
                 inputs.len()
             )));
         }
 
-        let input_arrays: [&[f64]; rust_nvi::INPUTS_WIDTH] =
-            [inputs[0].as_slice()?, inputs[1].as_slice()?];
+        let input_arrays: [&[f64]; INPUTS] = [inputs[0].as_slice()?, inputs[1].as_slice()?];
 
         match self
             .inner
@@ -81,28 +80,27 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Py<PyArray1<f64>>>, NviState)> {
-    if inputs.len() != rust_nvi::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_nvi::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
-    if options.len() != rust_nvi::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_nvi::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
-    let input_arrays: [&[f64]; rust_nvi::INPUTS_WIDTH] =
-        [inputs[0].as_slice()?, inputs[1].as_slice()?];
+    let input_arrays: [&[f64]; INPUTS] = [inputs[0].as_slice()?, inputs[1].as_slice()?];
 
-    let options_array: [f64; rust_nvi::OPTIONS_WIDTH] = [];
+    let options_array: [f64; OPTIONS] = [];
 
-    match rust_nvi::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
+    match Nvi::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((
             crate::utils::vecs_to_pyarrays(py, result),
             NviState { inner: state },
@@ -116,19 +114,82 @@ pub fn indicator(
 
 #[pyfunction]
 pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
-    crate::utils::info_to_pydict(py, rust_nvi::INFO)
+    crate::utils::info_to_pydict(py, Nvi::INFO)
 }
 
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_nvi::min_data(&options))
+    if options.len() != OPTIONS {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            OPTIONS,
+            options.len()
+        )));
+    }
+
+    let options_array: [f64; OPTIONS] = [];
+    Ok(Nvi::min_data(&options_array))
 }
 
-
-
-
-
+/// Calculate NVI (Negative Volume Index) for multiple assets using SIMD operations
+///
+/// This function processes multiple assets simultaneously for improved performance
+/// using SIMD (Single Instruction, Multiple Data) operations.
+///
+/// The Negative Volume Index is a technical indicator that focuses on price changes
+/// when volume decreases. It cumulative sum of price changes on days with lower volume,
+/// providing insight into "smart money" activity during low-volume periods.
+///
+/// Parameters:
+/// - inputs: Vector of asset inputs, where each asset contains [close, volume] arrays
+/// - options: Empty vector (NVI has no option parameters)
+/// - optional_outputs: Optional list of booleans for additional outputs (none available for NVI)
+///
+/// Returns:
+/// - Tuple of (outputs, states) where:
+///   - outputs: Vector of NVI results for each asset (each asset returns one index line)
+///   - states: Vector of NviState objects for continuing calculations
+///
+/// Input Structure:
+/// The inputs parameter should be structured as:
+/// ```
+/// inputs = [
+///     [close_asset1, volume_asset1],  # Asset 1
+///     [close_asset2, volume_asset2],  # Asset 2
+///     # ... more assets
+/// ]
+/// ```
+///
+/// Example:
+/// ```python
+/// import numpy as np
+/// import tulip_rs as ti
+///
+/// # Data for 4 assets, 15 periods each (SIMD requires 2, 4, 8, or 16 assets)
+/// close1 = np.array([10.3, 10.6, 10.8, 10.7, 11.0, 10.9, 11.1, 10.8, 10.6, 10.9, 11.2, 11.0, 11.3, 11.1, 11.4], dtype=np.float64)
+/// volume1 = np.array([1000, 1200, 1500, 1100, 1300, 1400, 1600, 1200, 1000, 1350, 1700, 1500, 1800, 1600, 1900], dtype=np.float64)
+///
+/// # Similar data for assets 2, 3, 4...
+///
+/// # Prepare inputs for SIMD processing (must be exactly 2, 4, 8, or 16 assets)
+/// inputs = [
+///     [close1, volume1],  # Asset 1
+///     [close2, volume2],  # Asset 2
+///     [close3, volume3],  # Asset 3
+///     [close4, volume4],  # Asset 4
+/// ]
+///
+/// # NVI has no options - empty list
+/// options = []
+///
+/// # Calculate NVI for all assets using SIMD
+/// outputs, states = ti.indicators.nvi_simd_by_assets(inputs, options, None)
+/// ```
+///
+/// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
+/// For other numbers of assets, use the regular indicator function for each asset individually.
 #[pyfunction]
+#[pyo3(signature = (inputs, options, optional_outputs=None))]
 pub fn simd_by_assets(
     py: Python<'_>,
     inputs: Vec<Vec<PyReadonlyArray1<f64>>>,
@@ -153,93 +214,57 @@ pub fn simd_by_assets(
 
     // Validate that each asset has the correct number of inputs
     for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
-        if asset_inputs.len() != rust_nvi::INPUTS_WIDTH {
+        if asset_inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Asset {} expected {} inputs, got {}",
                 asset_idx,
-                rust_nvi::INPUTS_WIDTH,
+                INPUTS,
                 asset_inputs.len()
             )));
         }
     }
 
-    if options.len() != rust_nvi::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_nvi::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
     // Convert Python arrays to Rust slices for each asset
-    let mut asset_input_arrays: Vec<[&[f64]; rust_nvi::INPUTS_WIDTH]> =
-        Vec::with_capacity(num_assets);
+    let mut asset_input_arrays: Vec<[&[f64]; INPUTS]> = Vec::with_capacity(num_assets);
 
     for asset_inputs in &inputs {
-        let input_array: Result<[&[f64]; rust_nvi::INPUTS_WIDTH], _> = asset_inputs
-            .iter()
-            .map(|arr| arr.as_slice())
-            .collect::<Result<Vec<_>, _>>()?
-            .try_into();
-
-        match input_array {
-            Ok(arr) => asset_input_arrays.push(arr),
-            Err(_) => {
-                return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(
-                    "Failed to convert input arrays",
-                ))
-            }
-        }
+        let input_array: [&[f64]; INPUTS] = [
+            asset_inputs[0].as_slice()?, // close
+            asset_inputs[1].as_slice()?, // volume
+        ];
+        asset_input_arrays.push(input_array);
     }
 
     // Create array of references for the by_assets function
-    let input_refs: Vec<&[&[f64]; rust_nvi::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+    let input_refs: Vec<&[&[f64]; INPUTS]> = asset_input_arrays.iter().collect();
 
-    let options_array: Result<[f64; rust_nvi::OPTIONS_WIDTH], _> = options.try_into();
-    let options_array = options_array.map_err(|_| {
-        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
-            "Failed to convert options to array of length {}",
-            rust_nvi::OPTIONS_WIDTH
-        ))
-    })?;
+    let options_array: [f64; OPTIONS] = [];
 
     // Call the SIMD by assets function with proper const generic
     let result = match num_assets {
         2 => {
-            let input_array: &[&[&[f64]; rust_nvi::INPUTS_WIDTH]; 2] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_nvi::by_assets::indicator::<2>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 2] = input_refs.as_slice().try_into().unwrap();
+            Nvi::indicator_by_assets::<2>(input_array, &options_array, optional_outputs.as_deref())
         }
         4 => {
-            let input_array: &[&[&[f64]; rust_nvi::INPUTS_WIDTH]; 4] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_nvi::by_assets::indicator::<4>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 4] = input_refs.as_slice().try_into().unwrap();
+            Nvi::indicator_by_assets::<4>(input_array, &options_array, optional_outputs.as_deref())
         }
         8 => {
-            let input_array: &[&[&[f64]; rust_nvi::INPUTS_WIDTH]; 8] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_nvi::by_assets::indicator::<8>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 8] = input_refs.as_slice().try_into().unwrap();
+            Nvi::indicator_by_assets::<8>(input_array, &options_array, optional_outputs.as_deref())
         }
         16 => {
-            let input_array: &[&[&[f64]; rust_nvi::INPUTS_WIDTH]; 16] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_nvi::by_assets::indicator::<16>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 16] = input_refs.as_slice().try_into().unwrap();
+            Nvi::indicator_by_assets::<16>(input_array, &options_array, optional_outputs.as_deref())
         }
         _ => unreachable!("Already validated SIMD lane count"),
     };
@@ -265,10 +290,11 @@ pub fn register_nvi_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    
+
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_class::<NviState>()?;
 
     parent_module.add_submodule(&submodule)?;
+
     Ok(())
 }

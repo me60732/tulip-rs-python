@@ -4,14 +4,15 @@ use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::cci as rust_cci;
+use tulip_rs::indicators::cci::{
+    Cci, Indicator, IndicatorByOptions, IndicatorState, TIndicatorState, INPUTS, OPTIONS,
+};
 
 /// CCI State wrapper for Python
 #[pyclass]
 #[derive(Serialize, Deserialize)]
 pub struct CciState {
-    inner: rust_cci::IndicatorState,
+    inner: IndicatorState,
 }
 
 #[pymethods]
@@ -35,26 +36,25 @@ impl CciState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
-        if inputs.len() != rust_cci::INPUTS_WIDTH {
+        if inputs.len() != INPUTS {
             return Err(pyo3::exceptions::PyValueError::new_err(format!(
                 "CCI requires {} input arrays, got {}",
-                rust_cci::INPUTS_WIDTH,
+                INPUTS,
                 inputs.len()
             )));
         }
 
         // Direct extraction for three inputs (CCI takes high, low, close)
-        let inputs_array: [&[f64]; rust_cci::INPUTS_WIDTH] = [
+        let inputs_array: [&[f64]; INPUTS] = [
             inputs[0].as_slice()?,
             inputs[1].as_slice()?,
             inputs[2].as_slice()?,
         ];
 
-        match TIndicatorState::batch_indicator(
-            &mut self.inner,
-            &inputs_array,
-            optional_outputs.as_deref(),
-        ) {
+        match self
+            .inner
+            .batch_indicator(&inputs_array, optional_outputs.as_deref())
+        {
             Ok(outputs) => Ok(crate::utils::vecs_to_pyarrays(py, outputs)),
             Err(e) => Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                 "Calculation error: {}",
@@ -108,33 +108,33 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Py<PyArray1<f64>>>, CciState)> {
-    if options.len() != rust_cci::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Expected {} options, got {}",
-            rust_cci::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
-    if inputs.len() != rust_cci::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "CCI requires {} input arrays, got {}",
-            rust_cci::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
     // Direct extraction for three inputs (CCI takes high, low, close)
-    let inputs_array: [&[f64]; rust_cci::INPUTS_WIDTH] = [
+    let inputs_array: [&[f64]; INPUTS] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
         inputs[2].as_slice()?,
     ];
 
     // Convert options to fixed-size array
-    let options_array: [f64; rust_cci::OPTIONS_WIDTH] = [options[0]];
+    let options_array: [f64; OPTIONS] = [options[0]];
 
-    match rust_cci::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
+    match Cci::indicator(&inputs_array, &options_array, optional_outputs.as_deref()) {
         Ok((outputs, state)) => Ok((
             crate::utils::vecs_to_pyarrays(py, outputs),
             CciState { inner: state },
@@ -149,23 +149,22 @@ pub fn indicator(
 /// Get CCI indicator information
 #[pyfunction]
 pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
-    crate::utils::info_to_pydict(py, rust_cci::INFO)
+    crate::utils::info_to_pydict(py, Cci::INFO)
 }
 
 /// Get minimum data length required for CCI calculation
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    if options.len() != rust_cci::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "Expected {} options, got {}",
-            rust_cci::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
-    Ok(rust_cci::min_data(&options))
+    let options_array: [f64; OPTIONS] = [options[0]];
+    Ok(Cci::min_data(&options_array))
 }
-
-
 
 /// Calculate CCI (Commodity Channel Index) for multiple assets using SIMD operations
 ///
@@ -251,30 +250,29 @@ pub fn simd_by_assets(
 
     // Validate that each asset has the correct number of inputs
     for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
-        if asset_inputs.len() != rust_cci::INPUTS_WIDTH {
+        if asset_inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Asset {} expected {} inputs, got {}",
                 asset_idx,
-                rust_cci::INPUTS_WIDTH,
+                INPUTS,
                 asset_inputs.len()
             )));
         }
     }
 
-    if options.len() != rust_cci::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_cci::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
     // Convert Python arrays to Rust slices for each asset
-    let mut asset_input_arrays: Vec<[&[f64]; rust_cci::INPUTS_WIDTH]> =
-        Vec::with_capacity(num_assets);
+    let mut asset_input_arrays: Vec<[&[f64]; INPUTS]> = Vec::with_capacity(num_assets);
 
     for asset_inputs in &inputs {
-        let input_array: [&[f64]; rust_cci::INPUTS_WIDTH] = [
+        let input_array: [&[f64]; INPUTS] = [
             asset_inputs[0].as_slice()?, // high
             asset_inputs[1].as_slice()?, // low
             asset_inputs[2].as_slice()?, // close
@@ -283,47 +281,27 @@ pub fn simd_by_assets(
     }
 
     // Create array of references for the by_assets function
-    let input_refs: Vec<&[&[f64]; rust_cci::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+    let input_refs: Vec<&[&[f64]; INPUTS]> = asset_input_arrays.iter().collect();
 
-    let options_array: [f64; rust_cci::OPTIONS_WIDTH] = [options[0]];
+    let options_array: [f64; OPTIONS] = [options[0]];
 
     // Call the SIMD by assets function with proper const generic
     let result = match num_assets {
         2 => {
-            let input_array: &[&[&[f64]; rust_cci::INPUTS_WIDTH]; 2] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_cci::by_assets::indicator::<2>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 2] = input_refs.as_slice().try_into().unwrap();
+            Cci::indicator_by_assets::<2>(input_array, &options_array, optional_outputs.as_deref())
         }
         4 => {
-            let input_array: &[&[&[f64]; rust_cci::INPUTS_WIDTH]; 4] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_cci::by_assets::indicator::<4>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 4] = input_refs.as_slice().try_into().unwrap();
+            Cci::indicator_by_assets::<4>(input_array, &options_array, optional_outputs.as_deref())
         }
         8 => {
-            let input_array: &[&[&[f64]; rust_cci::INPUTS_WIDTH]; 8] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_cci::by_assets::indicator::<8>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 8] = input_refs.as_slice().try_into().unwrap();
+            Cci::indicator_by_assets::<8>(input_array, &options_array, optional_outputs.as_deref())
         }
         16 => {
-            let input_array: &[&[&[f64]; rust_cci::INPUTS_WIDTH]; 16] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_cci::by_assets::indicator::<16>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 16] = input_refs.as_slice().try_into().unwrap();
+            Cci::indicator_by_assets::<16>(input_array, &options_array, optional_outputs.as_deref())
         }
         _ => unreachable!("Already validated SIMD lane count"),
     };
@@ -369,76 +347,56 @@ pub fn simd_by_options(
         )));
     }
 
-    if inputs.len() != rust_cci::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_cci::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
     for (opt_idx, opt) in options.iter().enumerate() {
-        if opt.len() != rust_cci::OPTIONS_WIDTH {
+        if opt.len() != OPTIONS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Option set {} expected {} values, got {}",
                 opt_idx,
-                rust_cci::OPTIONS_WIDTH,
+                OPTIONS,
                 opt.len()
             )));
         }
     }
 
-    let input_arrays: [&[f64]; rust_cci::INPUTS_WIDTH] = [
+    let input_arrays: [&[f64]; INPUTS] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
         inputs[2].as_slice()?,
     ];
 
-    let mut option_arrays: Vec<[f64; rust_cci::OPTIONS_WIDTH]> = Vec::with_capacity(num_options);
+    let mut option_arrays: Vec<[f64; OPTIONS]> = Vec::with_capacity(num_options);
 
     for opt in &options {
         option_arrays.push([opt[0]]);
     }
 
-    let option_refs: Vec<&[f64; rust_cci::OPTIONS_WIDTH]> = option_arrays.iter().collect();
+    let option_refs: Vec<&[f64; OPTIONS]> = option_arrays.iter().collect();
 
     // Call the SIMD by options function with proper const generic
     let result = match num_options {
         2 => {
-            let opt_array: &[&[f64; rust_cci::OPTIONS_WIDTH]; 2] =
-                option_refs.as_slice().try_into().unwrap();
-            rust_cci::by_options::indicator::<2>(
-                &input_arrays,
-                opt_array,
-                optional_outputs.as_deref(),
-            )
+            let opt_array: &[&[f64; OPTIONS]; 2] = option_refs.as_slice().try_into().unwrap();
+            Cci::indicator_by_options::<2>(&input_arrays, opt_array, optional_outputs.as_deref())
         }
         4 => {
-            let opt_array: &[&[f64; rust_cci::OPTIONS_WIDTH]; 4] =
-                option_refs.as_slice().try_into().unwrap();
-            rust_cci::by_options::indicator::<4>(
-                &input_arrays,
-                opt_array,
-                optional_outputs.as_deref(),
-            )
+            let opt_array: &[&[f64; OPTIONS]; 4] = option_refs.as_slice().try_into().unwrap();
+            Cci::indicator_by_options::<4>(&input_arrays, opt_array, optional_outputs.as_deref())
         }
         8 => {
-            let opt_array: &[&[f64; rust_cci::OPTIONS_WIDTH]; 8] =
-                option_refs.as_slice().try_into().unwrap();
-            rust_cci::by_options::indicator::<8>(
-                &input_arrays,
-                opt_array,
-                optional_outputs.as_deref(),
-            )
+            let opt_array: &[&[f64; OPTIONS]; 8] = option_refs.as_slice().try_into().unwrap();
+            Cci::indicator_by_options::<8>(&input_arrays, opt_array, optional_outputs.as_deref())
         }
         16 => {
-            let opt_array: &[&[f64; rust_cci::OPTIONS_WIDTH]; 16] =
-                option_refs.as_slice().try_into().unwrap();
-            rust_cci::by_options::indicator::<16>(
-                &input_arrays,
-                opt_array,
-                optional_outputs.as_deref(),
-            )
+            let opt_array: &[&[f64; OPTIONS]; 16] = option_refs.as_slice().try_into().unwrap();
+            Cci::indicator_by_options::<16>(&input_arrays, opt_array, optional_outputs.as_deref())
         }
         _ => unreachable!("Already validated SIMD lane count"),
     };
@@ -464,7 +422,7 @@ pub fn register_cci_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::P
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    
+
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_options, &submodule)?)?;
 

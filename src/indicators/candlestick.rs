@@ -314,12 +314,12 @@ pub fn register_candlestick_module(
 // ---------------------------------------------------------------------------
 
 /// Parse `options` (defaulting to [14, 20, 9]) and validate count.
-fn resolve_options(options: Option<Vec<f64>>) -> PyResult<[f64; rust_cdl::OPTIONS_WIDTH]> {
+fn resolve_options(options: Option<Vec<f64>>) -> PyResult<[f64; rust_cdl::OPTIONS]> {
     let v = options.unwrap_or_else(|| vec![14.0, 20.0, 9.0]);
-    if v.len() != rust_cdl::OPTIONS_WIDTH {
+    if v.len() != rust_cdl::OPTIONS {
         return Err(pyo3::exceptions::PyValueError::new_err(format!(
             "options must have exactly {} values [candle_period, trend_period, trend_signal_period], got {}",
-            rust_cdl::OPTIONS_WIDTH,
+            rust_cdl::OPTIONS,
             v.len()
         )));
     }

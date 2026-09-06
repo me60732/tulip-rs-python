@@ -4,12 +4,12 @@ use pyo3::types::PyModule;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tulip_rs::indicator_types::TIndicatorState;
-use tulip_rs::indicators::tr as rust_tr;
+use tulip_rs::indicators::tr::{Indicator, IndicatorState, Tr, INPUTS, OPTIONS};
 
 #[pyclass]
 #[derive(Serialize, Deserialize)]
 pub struct TrState {
-    inner: rust_tr::IndicatorState,
+    inner: IndicatorState,
 }
 
 #[pymethods]
@@ -21,15 +21,15 @@ impl TrState {
         inputs: Vec<PyReadonlyArray1<f64>>,
         optional_outputs: Option<Vec<bool>>,
     ) -> PyResult<Vec<Py<PyArray1<f64>>>> {
-        if inputs.len() != rust_tr::INPUTS_WIDTH {
+        if inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Expected {} inputs, got {}",
-                rust_tr::INPUTS_WIDTH,
+                INPUTS,
                 inputs.len()
             )));
         }
 
-        let input_arrays: [&[f64]; rust_tr::INPUTS_WIDTH] = [
+        let input_arrays: [&[f64]; INPUTS] = [
             inputs[0].as_slice()?,
             inputs[1].as_slice()?,
             inputs[2].as_slice()?,
@@ -84,31 +84,31 @@ pub fn indicator(
     options: Vec<f64>,
     optional_outputs: Option<Vec<bool>>,
 ) -> PyResult<(Vec<Py<PyArray1<f64>>>, TrState)> {
-    if inputs.len() != rust_tr::INPUTS_WIDTH {
+    if inputs.len() != INPUTS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} inputs, got {}",
-            rust_tr::INPUTS_WIDTH,
+            INPUTS,
             inputs.len()
         )));
     }
 
-    if options.len() != rust_tr::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_tr::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
-    let input_arrays: [&[f64]; rust_tr::INPUTS_WIDTH] = [
+    let input_arrays: [&[f64]; INPUTS] = [
         inputs[0].as_slice()?,
         inputs[1].as_slice()?,
         inputs[2].as_slice()?,
     ];
 
-    let options_array: [f64; rust_tr::OPTIONS_WIDTH] = [];
+    let options_array: [f64; OPTIONS] = [];
 
-    match rust_tr::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
+    match Tr::indicator(&input_arrays, &options_array, optional_outputs.as_deref()) {
         Ok((result, state)) => Ok((
             crate::utils::vecs_to_pyarrays(py, result),
             TrState { inner: state },
@@ -122,36 +122,43 @@ pub fn indicator(
 
 #[pyfunction]
 pub fn info(py: Python<'_>) -> PyResult<Bound<'_, pyo3::types::PyDict>> {
-    crate::utils::info_to_pydict(py, rust_tr::INFO)
+    crate::utils::info_to_pydict(py, Tr::INFO)
 }
 
 #[pyfunction]
 pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
-    Ok(rust_tr::min_data(&options))
+    if options.len() != OPTIONS {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "Expected {} options, got {}",
+            OPTIONS,
+            options.len()
+        )));
+    }
+
+    let options_array: [f64; OPTIONS] = [];
+
+    Ok(Tr::min_data(&options_array))
 }
 
-
-
-
-
-/// Calculate True Range for multiple assets using SIMD operations
+/// Calculate TR (True Range) for multiple assets using SIMD operations
 ///
 /// This function processes multiple assets simultaneously for improved performance
 /// using SIMD (Single Instruction, Multiple Data) operations.
 ///
-/// The True Range measures volatility by taking the maximum of:
-/// - Current High - Current Low
-/// - Absolute value of Current High - Previous Close
-/// - Absolute value of Current Low - Previous Close
+/// The True Range is a technical analysis indicator that measures the market's volatility.
+/// It takes the greatest of three values:
+/// 1. The difference between the current high and low
+/// 2. The absolute value of the difference between the current high and previous close
+/// 3. The absolute value of the difference between the current low and previous close
 ///
 /// Parameters:
 /// - inputs: Vector of asset inputs, where each asset contains [high, low, close] arrays
-/// - options: Empty vector (TR requires no options)
-/// - optional_outputs: Optional list of booleans for additional outputs
+/// - options: Empty vector (TR has no options)
+/// - optional_outputs: Optional list of booleans for additional outputs (none available for TR)
 ///
 /// Returns:
 /// - Tuple of (outputs, states) where:
-///   - outputs: Vector of TR results for each asset
+///   - outputs: Vector of TR results for each asset (each asset returns one True Range line)
 ///   - states: Vector of TrState objects for continuing calculations
 ///
 /// Input Structure:
@@ -169,22 +176,12 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
 /// import numpy as np
 /// import tulip_rs as ti
 ///
-/// # Data for 4 assets, 10 periods each (SIMD requires 2, 4, 8, or 16 assets)
-/// high1 = np.array([10.5, 10.8, 11.0, 10.9, 11.2, 11.5, 11.3, 11.8, 12.0, 11.9], dtype=np.float64)
-/// low1 = np.array([10.0, 10.2, 10.5, 10.3, 10.8, 11.0, 10.8, 11.3, 11.5, 11.4], dtype=np.float64)
-/// close1 = np.array([10.3, 10.6, 10.8, 10.7, 11.0, 11.3, 11.1, 11.6, 11.8, 11.7], dtype=np.float64)
+/// # Data for 4 assets, 15 periods each (SIMD requires 2, 4, 8, or 16 assets)
+/// high1 = np.array([10.5, 10.8, 11.0, 10.9, 11.2, 11.1, 11.3, 11.0, 10.8, 11.1, 11.4, 11.2, 11.5, 11.3, 11.6], dtype=np.float64)
+/// low1 = np.array([10.0, 10.2, 10.5, 10.3, 10.8, 10.7, 10.9, 10.6, 10.4, 10.7, 11.0, 10.8, 11.1, 10.9, 11.2], dtype=np.float64)
+/// close1 = np.array([10.3, 10.6, 10.8, 10.7, 11.0, 10.9, 11.1, 10.8, 10.6, 10.9, 11.2, 11.0, 11.3, 11.1, 11.4], dtype=np.float64)
 ///
-/// high2 = np.array([20.5, 20.8, 21.0, 20.9, 21.2, 21.5, 21.3, 21.8, 22.0, 21.9], dtype=np.float64)
-/// low2 = np.array([20.0, 20.2, 20.5, 20.3, 20.8, 21.0, 20.8, 21.3, 21.5, 21.4], dtype=np.float64)
-/// close2 = np.array([20.3, 20.6, 20.8, 20.7, 21.0, 21.3, 21.1, 21.6, 21.8, 21.7], dtype=np.float64)
-///
-/// high3 = np.array([30.5, 30.8, 31.0, 30.9, 31.2, 31.5, 31.3, 31.8, 32.0, 31.9], dtype=np.float64)
-/// low3 = np.array([30.0, 30.2, 30.5, 30.3, 30.8, 31.0, 30.8, 31.3, 31.5, 31.4], dtype=np.float64)
-/// close3 = np.array([30.3, 30.6, 30.8, 30.7, 31.0, 31.3, 31.1, 31.6, 31.8, 31.7], dtype=np.float64)
-///
-/// high4 = np.array([40.5, 40.8, 41.0, 40.9, 41.2, 41.5, 41.3, 41.8, 42.0, 41.9], dtype=np.float64)
-/// low4 = np.array([40.0, 40.2, 40.5, 40.3, 40.8, 41.0, 40.8, 41.3, 41.5, 41.4], dtype=np.float64)
-/// close4 = np.array([40.3, 40.6, 40.8, 40.7, 41.0, 41.3, 41.1, 41.6, 41.8, 41.7], dtype=np.float64)
+/// # Similar data for assets 2, 3, 4...
 ///
 /// # Prepare inputs for SIMD processing (must be exactly 2, 4, 8, or 16 assets)
 /// inputs = [
@@ -194,17 +191,11 @@ pub fn min_data(options: Vec<f64>) -> PyResult<usize> {
 ///     [high4, low4, close4],  # Asset 4
 /// ]
 ///
-/// # Calculate TR for all assets using SIMD
-/// outputs, states = ti.indicators.tr.simd_by_assets(inputs, [], None)
+/// # TR has no options - empty list
+/// options = []
 ///
-/// # outputs[0] contains TR values for asset 1
-/// # outputs[1] contains TR values for asset 2
-/// # outputs[2] contains TR values for asset 3
-/// # outputs[3] contains TR values for asset 4
-/// # states[0] contains the state for asset 1 (for continuation)
-/// # states[1] contains the state for asset 2 (for continuation)
-/// # states[2] contains the state for asset 3 (for continuation)
-/// # states[3] contains the state for asset 4 (for continuation)
+/// # Calculate TR for all assets using SIMD
+/// outputs, states = ti.indicators.tr_simd_by_assets(inputs, options, None)
 /// ```
 ///
 /// Note: This function only supports SIMD lane counts (2, 4, 8, or 16 assets).
@@ -235,30 +226,29 @@ pub fn simd_by_assets(
 
     // Validate that each asset has the correct number of inputs
     for (asset_idx, asset_inputs) in inputs.iter().enumerate() {
-        if asset_inputs.len() != rust_tr::INPUTS_WIDTH {
+        if asset_inputs.len() != INPUTS {
             return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
                 "Asset {} expected {} inputs, got {}",
                 asset_idx,
-                rust_tr::INPUTS_WIDTH,
+                INPUTS,
                 asset_inputs.len()
             )));
         }
     }
 
-    if options.len() != rust_tr::OPTIONS_WIDTH {
+    if options.len() != OPTIONS {
         return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
             "Expected {} options, got {}",
-            rust_tr::OPTIONS_WIDTH,
+            OPTIONS,
             options.len()
         )));
     }
 
     // Convert Python arrays to Rust slices for each asset
-    let mut asset_input_arrays: Vec<[&[f64]; rust_tr::INPUTS_WIDTH]> =
-        Vec::with_capacity(num_assets);
+    let mut asset_input_arrays: Vec<[&[f64]; INPUTS]> = Vec::with_capacity(num_assets);
 
     for asset_inputs in &inputs {
-        let input_array: [&[f64]; rust_tr::INPUTS_WIDTH] = [
+        let input_array: [&[f64]; INPUTS] = [
             asset_inputs[0].as_slice()?, // high
             asset_inputs[1].as_slice()?, // low
             asset_inputs[2].as_slice()?, // close
@@ -267,47 +257,27 @@ pub fn simd_by_assets(
     }
 
     // Create array of references for the by_assets function
-    let input_refs: Vec<&[&[f64]; rust_tr::INPUTS_WIDTH]> = asset_input_arrays.iter().collect();
+    let input_refs: Vec<&[&[f64]; INPUTS]> = asset_input_arrays.iter().collect();
 
-    let options_array: [f64; rust_tr::OPTIONS_WIDTH] = [];
+    let options_array: [f64; OPTIONS] = [];
 
     // Call the SIMD by assets function with proper const generic
     let result = match num_assets {
         2 => {
-            let input_array: &[&[&[f64]; rust_tr::INPUTS_WIDTH]; 2] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_tr::by_assets::indicator::<2>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 2] = input_refs.as_slice().try_into().unwrap();
+            Tr::indicator_by_assets::<2>(input_array, &options_array, optional_outputs.as_deref())
         }
         4 => {
-            let input_array: &[&[&[f64]; rust_tr::INPUTS_WIDTH]; 4] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_tr::by_assets::indicator::<4>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 4] = input_refs.as_slice().try_into().unwrap();
+            Tr::indicator_by_assets::<4>(input_array, &options_array, optional_outputs.as_deref())
         }
         8 => {
-            let input_array: &[&[&[f64]; rust_tr::INPUTS_WIDTH]; 8] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_tr::by_assets::indicator::<8>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 8] = input_refs.as_slice().try_into().unwrap();
+            Tr::indicator_by_assets::<8>(input_array, &options_array, optional_outputs.as_deref())
         }
         16 => {
-            let input_array: &[&[&[f64]; rust_tr::INPUTS_WIDTH]; 16] =
-                input_refs.as_slice().try_into().unwrap();
-            rust_tr::by_assets::indicator::<16>(
-                input_array,
-                &options_array,
-                optional_outputs.as_deref(),
-            )
+            let input_array: &[&[&[f64]; INPUTS]; 16] = input_refs.as_slice().try_into().unwrap();
+            Tr::indicator_by_assets::<16>(input_array, &options_array, optional_outputs.as_deref())
         }
         _ => unreachable!("Already validated SIMD lane count"),
     };
@@ -343,8 +313,9 @@ pub fn register_tr_module(parent_module: &pyo3::Bound<'_, PyModule>) -> pyo3::Py
     submodule.add_function(pyo3::wrap_pyfunction!(indicator, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(info, &submodule)?)?;
     submodule.add_function(pyo3::wrap_pyfunction!(min_data, &submodule)?)?;
-    
+
     submodule.add_function(pyo3::wrap_pyfunction!(simd_by_assets, &submodule)?)?;
+
     submodule.add_class::<TrState>()?;
 
     parent_module.add_submodule(&submodule)?;
