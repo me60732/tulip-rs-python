@@ -17,34 +17,44 @@ High-performance Python bindings for the TulipRS technical analysis library. Pro
 
 ## Installation
 
-### From PyPI (when published)
-
-```bash
-pip install tulip-rs
-```
-
-### From Source
+### From Source (recommended)
 
 Requirements:
 - Python 3.8+
-- Rust 1.70+
-- maturin
+- Rust nightly (pinned by the repo's `rust-toolchain.toml`)
+- maturin (`pip install maturin`)
+
+Building on your own machine with `-C target-cpu=native` lets LLVM use every
+instruction set your CPU supports — speeding up the scalar indicators as much
+as the SIMD ones, well beyond the generic prebuilt wheels:
 
 ```bash
 # Clone the repository
-git clone https://github.com/me60732/tulip-rs-python.git
-cd tulip-rs-python
-export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 
+git clone https://github.com/me60732/tulip_rs_python.git
+cd tulip_rs_python
+git checkout {latest tag}   # or omit for the bleeding edge — see the repo's tags page
+export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+
 # Install maturin
 pip install maturin
 
 # Build and install in development mode
-maturin develop
+RUSTFLAGS="-C target-cpu=native" maturin develop --release
 
-# Or build wheel for distribution
-maturin build --release
-#Or for build specific to current machine cpu archicture can also compile for other archictures by changing native to other rust cargo attributes
+# Or build a wheel for distribution
 RUSTFLAGS="-C target-cpu=native" maturin build --release
+```
+
+To target a different architecture, replace `native` with the appropriate
+codegen flag (e.g. `-C target-cpu=x86-64-v3`).
+
+### From PyPI
+
+Use this only when the deployment target architecture is unknown or a Rust
+toolchain can't run there (prebuilt wheels ship generic baselines):
+
+```bash
+pip install tulip-rs
 ```
 
 ## Quick Start
