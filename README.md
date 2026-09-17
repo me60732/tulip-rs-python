@@ -10,6 +10,20 @@
 
 High-performance Python bindings for the TulipRS technical analysis library. Provides 100+ technical indicators and candlestick pattern recognition with zero-copy numpy integration.
 
+## Performance
+
+`tulip_rs_python` brings native Rust + SIMD performance to Python via PyO3,
+with zero-copy numpy integration:
+
+- **~22× faster than Python's `ta` library** (median across 35 indicators),
+  up to **20,802× faster** on indicators where `ta` falls back to pure-Python loops
+- Even against `ta`'s pandas/numpy-accelerated paths (EMA, BBands, MACD),
+  `tulip_rs_python` is still **3–5× faster**
+- Adds only **~5–25 µs** of fixed per-call overhead (GIL + PyO3 marshalling)
+  on top of native Rust computation
+
+📊 **[Full Python binding benchmarks](https://me60732.github.io/tulip_rs/benchmarks/python/)**
+
 ## Features
 
 - **100+ Technical Indicators**: Moving averages, oscillators, trend indicators, volume indicators, and more
