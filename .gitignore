@@ -3,7 +3,6 @@
 # -------------------------
 target/
 Cargo.lock
-
 # If you want Cargo.lock tracked for libraries, remove the line above.
 # For Python bindings, it's usually better ignored.
 
