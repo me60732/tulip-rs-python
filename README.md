@@ -1,8 +1,12 @@
 # TulipRS Python Bindings
 
+[![PyPI version](https://img.shields.io/pypi/v/tulip-rs.svg)](https://pypi.org/project/tulip-rs/)
+[![Downloads](https://img.shields.io/pypi/dm/tulip-rs.svg)](https://pypi.org/project/tulip-rs/)
+[![License](https://img.shields.io/pypi/l/tulip-rs.svg)](LICENSE)
+[![CI status](https://github.com/me60732/tulip_rs_python/actions/workflows/publish.yml/badge.svg)](https://github.com/me60732/tulip_rs_python/actions/workflows/publish.yml)
+
 ![Python](https://img.shields.io/badge/python-3.8+-blue.svg)
 ![Rust](https://img.shields.io/badge/rust-1.70+-orange.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
 
 High-performance Python bindings for the TulipRS technical analysis library. Provides 100+ technical indicators and candlestick pattern recognition with zero-copy numpy integration.
 
